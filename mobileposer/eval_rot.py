@@ -23,6 +23,9 @@ class CalibMode(str, Enum):
     OURS = "ours"
 
 
+GLOBAL_MODE = "global"   # <<<<<< 新增：全局未对齐模式
+
+
 # ============================================================
 # 2. Calibration configuration table
 # ============================================================
@@ -40,7 +43,7 @@ CALIB_CONFIG = {
         "operator_module": "TicOperator_ours",
         "operator_class": "TicOperator",
         "model_class": LSTMIC,
-        "checkpoint": "./data/checkpoint/calibrator/Ours_SynData/Ours_SynData_20.pth",
+        "checkpoint": "./data/checkpoint/calibrator/Ours_SynData_TIC/34.pth",
         "operator_kwargs": {"data_frame_rate": 30},
         "run_type": "per_frame",
     },
@@ -55,12 +58,10 @@ class TICModelEvaluator:
     def __init__(self, device="cuda:0"):
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
 
-        # dataset
         data_dir = "/root/autodl-tmp/processed_dataset/eval"
         dataset_name = "imuposer_full.pt"
         self.data = torch.load(os.path.join(data_dir, dataset_name))
 
-        # body model
         self.body_model = art.ParametricModel(config.paths.smpl_file)
 
         self.ego_id = -1
@@ -125,7 +126,7 @@ class TICModelEvaluator:
         return ori_fix.cpu()
 
     # ========================================================
-    # helper: subject + local seq id
+    # helper
     # ========================================================
     @staticmethod
     def _get_subject_and_local_idx(idx, subject_ranges):
@@ -156,12 +157,14 @@ class TICModelEvaluator:
             subject_ranges = None
 
         # ---------- results ----------
+        all_modes = [GLOBAL_MODE] + list(calib_modes)
+
         if subject_ranges is None:
-            results = {mode: [] for mode in calib_modes}
+            results = {mode: [] for mode in all_modes}
         else:
             results = {
                 mode: {sid: [] for sid in range(num_subjects)}
-                for mode in calib_modes
+                for mode in all_modes
             }
 
         oris = self.data["ori"]
@@ -185,49 +188,46 @@ class TICModelEvaluator:
             )[0].view(-1, 24, 3, 3)
             gt_bone = pose[:, [18, 2, 15]]
 
+            # ================= GLOBAL (no yaw alignment) =================
+            err_glb = angle_diff(
+                ori,
+                gt_bone,
+                imu_num=3,
+                print_result=False,
+            )
+
+            if subject_ranges is None:
+                results[GLOBAL_MODE].append(err_glb)
+            else:
+                results[GLOBAL_MODE][subject_id].append(err_glb)
+
             # ================= save Euler error =================
             if save_img and save_dir is not None:
                 R_err = ori.transpose(-2, -1).matmul(gt_bone)
                 euler_err = (art.math.rotation_matrix_to_euler_angle(R_err, seq="YZX") * 180 / np.pi).view(-1, 3, 3)
-
                 if subject_ranges is not None:
-                    seq_dir = os.path.join(
-                        save_dir,
-                        f"subject_{subject_id:02d}",
-                        f"seq_{local_seq_id:03d}",
-                    )
+                    seq_dir = os.path.join(save_dir, f"subject_{subject_id:02d}", f"seq_{local_seq_id:03d}", )
                 else:
                     seq_dir = os.path.join(save_dir, f"seq_{idx:04d}")
-
                 os.makedirs(seq_dir, exist_ok=True)
-
                 T = euler_err.shape[0]
                 x = torch.arange(T).cpu().numpy()
-
                 for sensor_id in range(3):
                     y = euler_err[:, sensor_id].cpu().numpy()
-
-                    plt.figure(figsize=(6, 3))
-                    plt.plot(x, y[:, 0], label="yaw")
-                    plt.plot(x, y[:, 1], label="roll")
-                    plt.plot(x, y[:, 2], label="pitch")
-                    plt.ylim(-60, 60)
-                    plt.xlabel("frame")
-                    plt.ylabel("euler error (deg)")
-                    plt.title(
-                        f"Sub {subject_id:02d} | Seq {local_seq_id:03d} | IMU {sensor_id}"
-                        if subject_id is not None
-                        else f"Seq {idx:04d} | IMU {sensor_id}"
-                    )
-                    plt.legend(loc="upper right")
-                    plt.tight_layout()
-                    plt.savefig(
-                        os.path.join(seq_dir, f"imu_{sensor_id:02d}.png"),
-                        dpi=200,
-                    )
+                    plt.figure(figsize=(6, 3)) 
+                    plt.plot(x, y[:, 0], label="yaw") 
+                    plt.plot(x, y[:, 1], label="roll") 
+                    plt.plot(x, y[:, 2], label="pitch") 
+                    plt.ylim(-60, 60) 
+                    plt.xlabel("frame") 
+                    plt.ylabel("euler error (deg)") 
+                    plt.title( f"Sub {subject_id:02d} | Seq {local_seq_id:03d} | IMU {sensor_id}" if subject_id is not None else f"Seq {idx:04d} | IMU {sensor_id}" ) 
+                    plt.legend(loc="upper right") 
+                    plt.tight_layout() 
+                    plt.savefig( os.path.join(seq_dir, f"imu_{sensor_id:02d}.png"), dpi=200, ) 
                     plt.close()
 
-            # ================= quantitative =================
+            # ================= EGO-YAW ALIGNED =================
             gt_yaw = get_ego_yaw(gt_bone, ego_idx=self.ego_id)
             gt_bone_ego = gt_yaw.transpose(-2, -1).matmul(gt_bone)
 
@@ -250,7 +250,8 @@ class TICModelEvaluator:
 
         # ================= print =================
         print("\n========== Evaluation Results ==========")
-        for mode in calib_modes:
+
+        for mode in all_modes:
             print(f"\n[{mode}]")
 
             if subject_ranges is None:
@@ -280,7 +281,7 @@ class TICModelEvaluator:
 def main():
     evaluator = TICModelEvaluator()
     evaluator.evaluate_imuposer(
-        calib_modes=[CalibMode.NONE, CalibMode.TIC],
+        calib_modes=[CalibMode.NONE, CalibMode.OURS],
         subject_num=config.imuposer_dataset.subject_num,
         save_dir="data/rotation/full",
         save_img=True,

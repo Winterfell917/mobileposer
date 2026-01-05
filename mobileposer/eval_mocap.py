@@ -276,7 +276,7 @@ if __name__ == "__main__":
     else:
         from TicOperator_ours import *
         lstm = LSTMIC(n_input=imu_num * (3 + 3 * 3), n_output=imu_num * 6)
-        lstm.restore("./data/checkpoint/calibrator/Ours_RealData/Ours_RealData_20.pth")
+        lstm.restore("./data/checkpoint/calibrator/Ours_SynData_MODA/2.pth")
         net = lstm.to(model_config.device).eval()
         calibrator = TicOperator(TIC_network=net, imu_num=imu_num, data_frame_rate=30)
 

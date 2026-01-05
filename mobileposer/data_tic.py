@@ -73,7 +73,7 @@ def find_seg_index(index_info, data_index, n_seg=0):
     inner_index = data_index - index_info[seq_index]
     return seq_index, inner_index
 
-class IMUData(BaseDataset):
+class IMUData_Syn(BaseDataset):
     def __init__(self, rot: torch.Tensor, acc, seg_info, head_acc=None, seq_len=256):
         self.rot = rot
         self.acc = acc

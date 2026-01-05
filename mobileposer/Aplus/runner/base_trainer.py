@@ -29,8 +29,8 @@ class BaseTrainer:
 
     def save(self, folder_path, model_name=None):
         if self.checkpoint is None:
-            self.checkpoint = CheckPoint(model=self.model, optimizer=self.optimizer,
-                                         log_manager=self.log_manager)
+            self.checkpoint = CheckPoint(model=self.model, optimizer=self.optimizer,)
+                                        #  log_manager=self.log_manager)
         print(f'saving checkpoint ...', end='')
         self.checkpoint.save(save_folder_path=folder_path, epoch=self.epoch, model_name=model_name)
         print('done')

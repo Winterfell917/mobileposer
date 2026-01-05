@@ -1,15 +1,15 @@
 import torch
 class CheckPoint():
-    def __init__(self, model, optimizer, log_manager):
+    def __init__(self, model, optimizer, log_manager=None):
         self.model = model
         self.optimizer = optimizer
-        self.log_manager = log_manager
+        # self.log_manager = log_manager
 
     def save(self, save_folder_path, epoch, model_name=None):
         save_state = {
             'epoch': epoch,
             'model': self.model.state_dict(),
-            'log': self.log_manager.log,
+            # 'log': self.log_manager.log,
         }
         # 多个optimizer可以以list存储
         if isinstance(self.optimizer, list):
@@ -21,7 +21,7 @@ class CheckPoint():
             save_state.update({'optimizer': self.optimizer.state_dict()})
         if model_name is None:
             model_name = type(self.model).__name__
-        torch.save(save_state, f'{save_folder_path}/{model_name}_{epoch}.pth')
+        torch.save(save_state, f'{save_folder_path}/{epoch}.pth')
 
     @staticmethod
     def load(file_path):
