@@ -14,9 +14,9 @@ imu_slots:
   right_pocket: 3
 
 data:
-  # 改成你服务器上的真实路径
-  processed_amass_dir: /root/autodl-tmp/processed_dataset
-  processed_imuposer_file: /root/autodl-tmp/processed_dataset/eval/imuposer_full.pt
+  # 相对仓库根目录；也可写绝对路径
+  processed_amass_dir: data/processed
+  processed_imuposer_file: data/processed/eval/imuposer_full.pt
   # 本实验生成的样本输出目录
   out_dir: experiments/week1_pos_cls/outputs/data
   fps: 30

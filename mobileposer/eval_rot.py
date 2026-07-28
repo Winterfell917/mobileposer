@@ -58,7 +58,7 @@ class TICModelEvaluator:
     def __init__(self, device="cuda:0"):
         self.device = torch.device(device if torch.cuda.is_available() else "cpu")
 
-        data_dir = "/root/autodl-tmp/processed_dataset/eval"
+        data_dir = config.paths.eval_dir
         dataset_name = "imuposer_full.pt"
         self.data = torch.load(os.path.join(data_dir, dataset_name))
 

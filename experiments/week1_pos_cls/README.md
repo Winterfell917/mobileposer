@@ -45,8 +45,14 @@ conda activate mobileposer
 cd /home/caolindong/projects/mobileposer
 ```
 编辑 `configs/default.yaml`：
-- `data.processed_amass_dir`
-- `data.processed_imuposer_file`
+- `data.processed_amass_dir`（默认 `data/processed`）
+- `data.processed_imuposer_file`（默认 `data/processed/eval/imuposer_full.pt`）
+
+原始数据应放在仓库根目录：
+- `data/raw/AMASS/`
+- `data/raw/IMUPoser/`
+
+主配置见 `mobileposer/config.py` 的 `paths`（已指向上述本地 `data/`）。
 
 先跑通 MobilePoser 预处理（若还没有 `.pt`）：
 ```bash

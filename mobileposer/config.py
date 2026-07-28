@@ -30,23 +30,31 @@ class finetune_hypers:
 
 class paths:
     """Relevant paths for MobilePoser. Change as necessary."""
-    root_dir = Path().absolute()
-    checkpoint = root_dir / "data/checkpoints"
-    smpl_file = root_dir / "smpl/basicmodel_m.pkl"
-    weights_file = root_dir / "checkpoints/weights.pth"
-    raw_amass = Path("/root/autodl-tmp/data_raw/AMASS") 
-    raw_dip = Path("/root/autodl-tmp/data_raw/DIP_IMU")           
-    raw_imuposer = Path("/root/autodl-tmp/data_raw/imuposer_dataset")     
-    eval_dir = Path("/root/autodl-tmp/processed_dataset/eval")
-    processed_datasets = Path("/root/autodl-tmp/processed_dataset")
-    raw_totalcapture_official = root_dir / "/root/autodl-tmp/data/TotalCapture/official"
-    calibrated_totalcapture = root_dir / "/root/autodl-tmp/data/TotalCapture/calibrated" 
-    real_dataset_dir = '/root/autodl-tmp/data_real/raw/full_1229'
-    real_dataset_processed_dir = '/root/autodl-tmp/data_real/processed'
-    temp_dir = Path("data/livedemo/temp")
-    
-    # TIC
-    amass_dir = '/root/autodl-tmp/data_tic/AMASS_IMU6'
+    # config.py -> mobileposer/ ; project root -> mobileposer/
+    package_dir = Path(__file__).resolve().parent
+    project_root = package_dir.parent
+    data_root = project_root / "data"
+
+    root_dir = project_root
+    checkpoint = data_root / "checkpoints"
+    smpl_file = package_dir / "smpl" / "basicmodel_m.pkl"
+    weights_file = project_root / "checkpoints" / "weights.pth"
+
+    # Raw downloads (gitignored under data/)
+    raw_amass = data_root / "raw" / "AMASS"
+    raw_dip = data_root / "raw" / "DIP_IMU"
+    raw_imuposer = data_root / "raw" / "IMUPoser"
+    raw_totalcapture_official = data_root / "raw" / "TotalCapture" / "official"
+    calibrated_totalcapture = data_root / "raw" / "TotalCapture" / "calibrated"
+    real_dataset_dir = data_root / "raw" / "real" / "full_1229"
+
+    # Preprocessed outputs
+    processed_datasets = data_root / "processed"
+    eval_dir = data_root / "processed" / "eval"
+    real_dataset_processed_dir = data_root / "processed" / "real"
+    amass_dir = data_root / "processed" / "tic" / "AMASS_IMU6"  # TIC synthetic IMU6
+
+    temp_dir = data_root / "livedemo" / "temp"
 
 class model_config:
     """MobilePoser Model configurations."""

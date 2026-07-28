@@ -281,7 +281,8 @@ def simulation_ours(imu_rot, imu_acc, imu_num=3, acc_noise=0.025, random_global_
     return imu_rot, imu_acc, offset
 
 def load_data():
-    data_dir = "/root/autodl-tmp/processed_dataset/eval"
+    from config import paths
+    data_dir = paths.eval_dir
     dataset_name = "imuposer_full.pt"
     data = torch.load(os.path.join(data_dir, dataset_name))
     
