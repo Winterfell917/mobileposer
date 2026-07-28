@@ -1,0 +1,57 @@
+# Week1: Device Position Classification v1
+# 忽略朝向干扰，只预测手表左右腕 / 手机左右袋
+
+experiment:
+  name: week1_pos_cls
+  seed: 42
+
+# IMU 槽位（与 mobileposer data_process_mocap 一致）
+# 0=LW, 1=RW, 2=LP, 3=RP
+imu_slots:
+  left_wrist: 0
+  right_wrist: 1
+  left_pocket: 2
+  right_pocket: 3
+
+data:
+  # 改成你服务器上的真实路径
+  processed_amass_dir: /root/autodl-tmp/processed_dataset
+  processed_imuposer_file: /root/autodl-tmp/processed_dataset/eval/imuposer_full.pt
+  # 本实验生成的样本输出目录
+  out_dir: experiments/week1_pos_cls/outputs/data
+  fps: 30
+  window_len: 90
+  train_stride: 15
+  test_stride: 15
+  acc_scale: 30.0
+  # 输入: watch_acc(3)+watch_gyro(3)+phone_acc(3)+phone_gyro(3) = 12
+  input_dim: 12
+  # AMASS 子集（先小后大；空列表 = 目录下全部 .pt）
+  amass_subsets:
+    - CMU
+    - ACCAD
+    - BioMotionLab_NTroje
+  val_ratio: 0.2
+
+model:
+  n_hidden: 128
+  n_lstm_layers: 2
+  bidirectional: true
+  dropout: 0.3
+
+train:
+  batch_size: 256
+  num_workers: 4
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  epochs: 40
+  device: cuda:0
+  log_every: 20
+
+eval:
+  checkpoint: experiments/week1_pos_cls/outputs/checkpoints/best_joint_acc.pt
+  batch_size: 256
+
+visualize:
+  num_sequences: 3
+  max_windows_per_seq: 200
