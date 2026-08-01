@@ -3,7 +3,7 @@
 > 分支建议：`test` / `exp/week1-pos-cls`  
 > 目标：忽略朝向干扰，预测手表左右腕 + 手机左右袋。
 
-## 实验决策（写死，避免后面改来改去）
+## 实验决策
 
 | 项 | 取值 |
 |----|------|
@@ -70,6 +70,8 @@ python experiments/week1_pos_cls/dataset/build_amass_pos_cls.py \
 输出：`outputs/data/amass_train.pt`、`amass_val.pt`、`norm_stats.pt`
 
 ### 2. 造测试集（IMUPoser）
+官方IMUPoser录制时，每人同时戴了全部五个设备（0——左手腕手表，1——右手腕手表，2——左口袋手机，3——右口袋手机，4——头上的耳机）。本实验测试从0、1、2、3四路中挑两路作为一只手表、一只手机的输入。
+
 **不要猜标签。** 按真实佩戴填写，例如左腕+右袋：
 ```bash
 python experiments/week1_pos_cls/dataset/build_imuposer_pos_cls.py \
@@ -87,9 +89,12 @@ python experiments/week1_pos_cls/train.py \
 
 ### 4. 评估
 ```bash
-python experiments/week1_pos_cls/eval.py --split val
-python experiments/week1_pos_cls/eval.py --split test
+# 一次跑 AMASS Val + IMUPoser Test（含混淆矩阵 / 动作分组 / 窗长消融 / init_done）
+python experiments/week1_pos_cls/eval.py --split both \
+  --watch-side 0 --phone-side 1
 ```
+产物写在 `outputs/logs/`（**不入 git**，数字记到下方结果表）：
+- `metrics_val.json` / `metrics_test.json` / `metrics_summary.json`
 
 ### 5. 可视化
 ```bash
@@ -99,12 +104,41 @@ python experiments/week1_pos_cls/visualize.py --split test
 
 ## 结果记录
 
-| Split | Watch Acc | Phone Acc | Joint Acc | Seq Joint Acc | 日期 | 备注 |
-|-------|-----------|-----------|-----------|---------------|------|------|
-| AMASS Val | | | | | | |
-| IMUPoser Test | | | | | | |
+配置：`default.yaml`；训练窗长 W=90；IMUPoser 组合 **LW+RP**（`--watch-side 0 --phone-side 1`）；日期 2026-07-29。
+
+### 主表（W=90）
+
+| Split | Watch Acc | Phone Acc | Joint Acc | Seq Joint Acc | 备注 |
+|-------|-----------|-----------|-----------|---------------|------|
+| AMASS Val | 0.977 | 0.948 | **0.928** | **0.976** | n=79636 窗 / 3600 序列实例 |
+| IMUPoser Test | 0.891 | 0.790 | **0.719** | **0.749** | n=6003 窗 / 167 序列 |
+
+- **Joint Acc**：单窗上手表+手机都对。
+- **Seq Joint Acc**：同一序列内对窗预测做多数投票后再算 Joint（更接近「初始化」判定）。
+
+### 窗长消融（Joint Acc）
+
+| W | AMASS Val | IMUPoser Test |
+|---|-----------|---------------|
+| 30 | 0.828 | 0.626 |
+| 60 | 0.899 | 0.691 |
+| 90 | 0.928 | 0.719 |
+| 150 | 0.952 | 0.762 |
+
+### init_done（K=30 帧 ≈1s 预测稳定）
+
+| Split | 触发率 | 稳定预测正确率 | 中位耗时 |
+|-------|--------|----------------|----------|
+| AMASS Val | 0.924 | 0.960 | 1.0 s |
+| IMUPoser Test | 1.000 | 0.677 | 1.0 s |
+
+### 简要结论
+- 合成域（AMASS）很强；真实域（IMUPoser）Joint 掉到 ~0.72，手机侧更难点。
+- 动态动作（如 JumpingJacks / Walking）较好；静止或上肢复杂动作较差。
+- 更长窗抬高窗级 Acc；IMUPoser 序列级 Acc 对窗长不敏感。
 
 ## 已知注意点
-- IMUPoser 标签必须人工确认；脚本拒绝无标签运行。
+- IMUPoser 官方数据是 5 路全开；测试标签 = watch/phone 槽位，不是 zip 里另附的佩戴元数据。
 - 腕 IMU 特征来自肘关节朝向代理，报告里写清楚。
 - 静止段左右难分：可后续按动态/准静态分开统计。
+- `outputs/` 下 `.pt` / checkpoint / metrics JSON 视为可复现产物，默认不提交；以本 README 结果表为对外记录。
