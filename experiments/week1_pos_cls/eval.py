@@ -471,7 +471,7 @@ def load_model(cfg: dict, ckpt_path: Path, device: torch.device) -> nn.Module:
 
 def print_main_table(rows: List[Dict[str, Any]]) -> None:
     header = (
-        f"{'Split':<16} {'Watch Acc':>10} {'Phone Acc':>10} "
+        f"{'Split':<18} {'Combo':<8} {'Watch Acc':>10} {'Phone Acc':>10} "
         f"{'Joint Acc':>10} {'Seq Joint':>10}"
     )
     print("\n=== Main Result Table ===")
@@ -479,12 +479,39 @@ def print_main_table(rows: List[Dict[str, Any]]) -> None:
     print("-" * len(header))
     for r in rows:
         print(
-            f"{r['split']:<16} "
+            f"{r['split']:<18} "
+            f"{str(r.get('combo') or '-'):<8} "
             f"{r['watch_acc']:>10.4f} "
             f"{r['phone_acc']:>10.4f} "
             f"{r['joint_acc']:>10.4f} "
             f"{r.get('seq_joint_acc', float('nan')):>10.4f}"
         )
+
+
+def combo_tag(watch_side: int, phone_side: int) -> str:
+    w = "lw" if watch_side == 0 else "rw"
+    p = "lp" if phone_side == 0 else "rp"
+    return f"{w}_{p}"
+
+
+def combo_label(watch_side: int, phone_side: int) -> str:
+    w = "LW" if watch_side == 0 else "RW"
+    p = "LP" if phone_side == 0 else "RP"
+    return f"{w}+{p}"
+
+
+def resolve_test_pt(data_dir: Path, watch_side: int, phone_side: int) -> Path:
+    """Prefer imuposer_test_{lw|rw}_{lp|rp}.pt; fall back to imuposer_test.pt."""
+    named = data_dir / f"imuposer_test_{combo_tag(watch_side, phone_side)}.pt"
+    if named.exists():
+        return named
+    legacy = data_dir / "imuposer_test.pt"
+    if legacy.exists():
+        return legacy
+    raise FileNotFoundError(
+        f"Missing {named} (and no legacy imuposer_test.pt). "
+        "Run build_imuposer_pos_cls.py with --watch-side/--phone-side."
+    )
 
 
 def evaluate_split(
@@ -499,7 +526,10 @@ def evaluate_split(
     do_ablation: bool,
 ) -> Dict[str, Any]:
     data_dir = resolve_path(cfg["data"]["out_dir"])
-    pt = data_dir / ("amass_val.pt" if split == "val" else "imuposer_test.pt")
+    if split == "val":
+        pt = data_dir / "amass_val.pt"
+    else:
+        pt = resolve_test_pt(data_dir, watch_side, phone_side)
     if not pt.exists():
         raise FileNotFoundError(pt)
 
@@ -566,12 +596,54 @@ def evaluate_split(
             )
         metrics["window_ablation"] = ablation
 
-    metrics["split"] = "AMASS Val" if split == "val" else "IMUPoser Test"
-    metrics["combo"] = (
-        f"watch={watch_side}({ 'LW' if watch_side == 0 else 'RW' }), "
-        f"phone={phone_side}({ 'LP' if phone_side == 0 else 'RP' })"
-    )
+    tag = combo_tag(watch_side, phone_side)
+    label = combo_label(watch_side, phone_side)
+    if split == "val":
+        metrics["split"] = "AMASS Val"
+    else:
+        metrics["split"] = f"IMUPoser {label}"
+    metrics["combo"] = label
+    metrics["combo_tag"] = tag
+    metrics["test_pt"] = str(pt) if split == "test" else None
     return metrics
+
+
+def _print_split_details(metrics: Dict[str, Any]) -> None:
+    print(
+        f"[{metrics['split']}] "
+        f"watch={metrics['watch_acc']:.4f} "
+        f"phone={metrics['phone_acc']:.4f} "
+        f"joint={metrics['joint_acc']:.4f} "
+        f"seq_joint={metrics.get('seq_joint_acc', float('nan')):.4f}"
+    )
+    init = metrics["init_done"]
+    print(
+        f"  init_done: rate={init['init_rate']:.4f} "
+        f"correct={init['init_correct_rate']:.4f} "
+        f"latency_s(mean/med)="
+        f"{init['latency_sec_mean']}/{init['latency_sec_median']}"
+    )
+    if "by_motion" in metrics:
+        print("  by_motion (top joint_acc):")
+        ranked = sorted(
+            metrics["by_motion"].items(),
+            key=lambda kv: kv[1]["joint_acc"],
+            reverse=True,
+        )
+        for name, m in ranked[:8]:
+            print(
+                f"    {name:<22} n={m['n']:<5} "
+                f"joint={m['joint_acc']:.3f} "
+                f"w={m['watch_acc']:.3f} p={m['phone_acc']:.3f}"
+            )
+    if "window_ablation" in metrics:
+        print("  window_ablation joint_acc:")
+        for wlen, m in metrics["window_ablation"].items():
+            print(
+                f"    W={wlen:<3} n={m['n']:<7} "
+                f"joint={m['joint_acc']:.4f} "
+                f"seq={m.get('seq_joint_acc', float('nan')):.4f}"
+            )
 
 
 def main():
@@ -591,6 +663,13 @@ def main():
     parser.add_argument("--checkpoint", type=str, default=None)
     parser.add_argument("--watch-side", type=int, choices=[0, 1], default=0)
     parser.add_argument("--phone-side", type=int, choices=[0, 1], default=1)
+    parser.add_argument(
+        "--combos",
+        type=str,
+        default=None,
+        help="Comma-separated IMUPoser combos, e.g. lw_lp,rw_lp,rw_rp "
+        "(overrides --watch-side/--phone-side for test)",
+    )
     parser.add_argument("--k-frames", type=int, default=30, help="init_done stability K")
     parser.add_argument(
         "--no-ablation",
@@ -614,6 +693,15 @@ def main():
     stats = load_norm_stats(stats_pt)
     model = load_model(cfg, ckpt_path, device)
 
+    if args.combos:
+        combo_list = []
+        for tok in args.combos.split(","):
+            tok = tok.strip().lower().replace("+", "_").replace("-", "_")
+            w_name, p_name = tok.split("_")
+            combo_list.append((0 if w_name == "lw" else 1, 0 if p_name == "lp" else 1))
+    else:
+        combo_list = [(args.watch_side, args.phone_side)]
+
     splits = ["val", "test"] if args.split == "both" else [args.split]
     all_metrics = {}
     table_rows = []
@@ -621,74 +709,93 @@ def main():
     log_dir.mkdir(parents=True, exist_ok=True)
 
     for split in splits:
-        print(f"\n======== Evaluating split={split} ========")
-        metrics = evaluate_split(
-            split=split,
-            cfg=cfg,
-            model=model,
-            device=device,
-            stats=stats,
-            watch_side=args.watch_side,
-            phone_side=args.phone_side,
-            k_frames=args.k_frames,
-            do_ablation=not args.no_ablation,
-        )
-        # serializable copy (drop huge arrays already removed)
-        all_metrics[split] = metrics
-        table_rows.append(
-            {
-                "split": metrics["split"],
-                "watch_acc": metrics["watch_acc"],
-                "phone_acc": metrics["phone_acc"],
-                "joint_acc": metrics["joint_acc"],
-                "seq_joint_acc": metrics.get("seq_joint_acc", float("nan")),
-            }
-        )
-        out_path = log_dir / f"metrics_{split}.json"
-        with open(out_path, "w", encoding="utf-8") as f:
-            json.dump(metrics, f, indent=2)
-        print(f"saved {out_path}")
-
-        print(
-            f"[{metrics['split']}] "
-            f"watch={metrics['watch_acc']:.4f} "
-            f"phone={metrics['phone_acc']:.4f} "
-            f"joint={metrics['joint_acc']:.4f} "
-            f"seq_joint={metrics.get('seq_joint_acc', float('nan')):.4f}"
-        )
-        init = metrics["init_done"]
-        print(
-            f"  init_done: rate={init['init_rate']:.4f} "
-            f"correct={init['init_correct_rate']:.4f} "
-            f"latency_s(mean/med)="
-            f"{init['latency_sec_mean']}/{init['latency_sec_median']}"
-        )
-        if "by_motion" in metrics:
-            print("  by_motion (top joint_acc):")
-            ranked = sorted(
-                metrics["by_motion"].items(),
-                key=lambda kv: kv[1]["joint_acc"],
-                reverse=True,
+        sides = combo_list if split == "test" else [combo_list[0]]
+        for watch_side, phone_side in sides:
+            tag = combo_tag(watch_side, phone_side)
+            print(
+                f"\n======== Evaluating split={split} "
+                f"combo={combo_label(watch_side, phone_side)} ========"
             )
-            for name, m in ranked[:8]:
-                print(
-                    f"    {name:<22} n={m['n']:<5} "
-                    f"joint={m['joint_acc']:.3f} "
-                    f"w={m['watch_acc']:.3f} p={m['phone_acc']:.3f}"
-                )
-        if "window_ablation" in metrics:
-            print("  window_ablation joint_acc:")
-            for wlen, m in metrics["window_ablation"].items():
-                print(
-                    f"    W={wlen:<3} n={m['n']:<7} "
-                    f"joint={m['joint_acc']:.4f} "
-                    f"seq={m.get('seq_joint_acc', float('nan')):.4f}"
-                )
+            metrics = evaluate_split(
+                split=split,
+                cfg=cfg,
+                model=model,
+                device=device,
+                stats=stats,
+                watch_side=watch_side,
+                phone_side=phone_side,
+                k_frames=args.k_frames,
+                do_ablation=not args.no_ablation,
+            )
+            key = "val" if split == "val" else f"test_{tag}"
+            all_metrics[key] = metrics
+            table_rows.append(
+                {
+                    "split": metrics["split"],
+                    "combo": metrics.get("combo"),
+                    "watch_acc": metrics["watch_acc"],
+                    "phone_acc": metrics["phone_acc"],
+                    "joint_acc": metrics["joint_acc"],
+                    "seq_joint_acc": metrics.get("seq_joint_acc", float("nan")),
+                }
+            )
+            out_name = "metrics_val.json" if split == "val" else f"metrics_test_{tag}.json"
+            out_path = log_dir / out_name
+            with open(out_path, "w", encoding="utf-8") as f:
+                json.dump(metrics, f, indent=2)
+            # keep legacy alias for LW+RP
+            if split == "test" and tag == "lw_rp":
+                legacy = log_dir / "metrics_test.json"
+                with open(legacy, "w", encoding="utf-8") as f:
+                    json.dump(metrics, f, indent=2)
+                print(f"saved {out_path} (and {legacy})")
+            else:
+                print(f"saved {out_path}")
+            _print_split_details(metrics)
 
     print_main_table(table_rows)
     summary_path = log_dir / "metrics_summary.json"
+    # merge with existing summary if present (keep prior val / other combos)
+    summary = {"table": table_rows, "details": all_metrics}
+    if summary_path.exists():
+        try:
+            prev = json.loads(summary_path.read_text(encoding="utf-8"))
+            prev_details = prev.get("details", {})
+            merged = dict(prev_details)
+            merged.update(all_metrics)
+            # rebuild table from merged details in stable order
+            order = ["val", "test_lw_lp", "test_lw_rp", "test_rw_lp", "test_rw_rp"]
+            merged_table = []
+            for k in order:
+                if k in merged:
+                    m = merged[k]
+                    merged_table.append(
+                        {
+                            "split": m["split"],
+                            "combo": m.get("combo"),
+                            "watch_acc": m["watch_acc"],
+                            "phone_acc": m["phone_acc"],
+                            "joint_acc": m["joint_acc"],
+                            "seq_joint_acc": m.get("seq_joint_acc", float("nan")),
+                        }
+                    )
+            for k, m in merged.items():
+                if k not in order:
+                    merged_table.append(
+                        {
+                            "split": m["split"],
+                            "combo": m.get("combo"),
+                            "watch_acc": m["watch_acc"],
+                            "phone_acc": m["phone_acc"],
+                            "joint_acc": m["joint_acc"],
+                            "seq_joint_acc": m.get("seq_joint_acc", float("nan")),
+                        }
+                    )
+            summary = {"table": merged_table, "details": merged}
+        except Exception:
+            pass
     with open(summary_path, "w", encoding="utf-8") as f:
-        json.dump({"table": table_rows, "details": all_metrics}, f, indent=2)
+        json.dump(summary, f, indent=2)
     print(f"\nsaved summary {summary_path}")
 
 
