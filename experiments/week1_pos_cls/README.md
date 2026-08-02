@@ -89,12 +89,18 @@ python experiments/week1_pos_cls/train.py \
 
 ### 4. 评估
 ```bash
-# 一次跑 AMASS Val + IMUPoser Test（含混淆矩阵 / 动作分组 / 窗长消融 / init_done）
+# 单组合（默认读 imuposer_test_{lw|rw}_{lp|rp}.pt）
 python experiments/week1_pos_cls/eval.py --split both \
   --watch-side 0 --phone-side 1
+
+# 多组合一次跑完
+python experiments/week1_pos_cls/eval.py --split test \
+  --combos lw_lp,lw_rp,rw_lp,rw_rp
 ```
 产物写在 `outputs/logs/`（**不入 git**，数字记到下方结果表）：
-- `metrics_val.json` / `metrics_test.json` / `metrics_summary.json`
+- `metrics_val.json`
+- `metrics_test_{lw_lp,lw_rp,rw_lp,rw_rp}.json`
+- `metrics_summary.json`
 
 ### 5. 可视化
 ```bash
@@ -104,38 +110,48 @@ python experiments/week1_pos_cls/visualize.py --split test
 
 ## 结果记录
 
-配置：`default.yaml`；训练窗长 W=90；IMUPoser 组合 **LW+RP**（`--watch-side 0 --phone-side 1`）；日期 2026-07-29。
+配置：`default.yaml`；训练窗长 W=90；checkpoint=`best_joint_acc.pt`。  
+AMASS Val / IMUPoser LW+RP：2026-07-29；其余三组合：2026-08-02。  
+每个 IMUPoser 组合均为 n=6003 窗 / 167 序列。
 
 ### 主表（W=90）
 
-| Split | Watch Acc | Phone Acc | Joint Acc | Seq Joint Acc | 备注 |
-|-------|-----------|-----------|-----------|---------------|------|
-| AMASS Val | 0.977 | 0.948 | **0.928** | **0.976** | n=79636 窗 / 3600 序列实例 |
-| IMUPoser Test | 0.891 | 0.790 | **0.719** | **0.749** | n=6003 窗 / 167 序列 |
+| Split | Combo | Watch Acc | Phone Acc | Joint Acc | Seq Joint Acc |
+|-------|-------|-----------|-----------|-----------|---------------|
+| AMASS Val | 4 组合混合 | 0.977 | 0.948 | **0.928** | **0.976** |
+| IMUPoser | LW+LP | 0.885 | 0.617 | **0.557** | **0.467** |
+| IMUPoser | LW+RP | 0.891 | 0.790 | **0.719** | **0.749** |
+| IMUPoser | RW+LP | 0.937 | 0.594 | **0.546** | **0.461** |
+| IMUPoser | RW+RP | 0.944 | 0.793 | **0.755** | **0.778** |
 
 - **Joint Acc**：单窗上手表+手机都对。
 - **Seq Joint Acc**：同一序列内对窗预测做多数投票后再算 Joint（更接近「初始化」判定）。
 
 ### 窗长消融（Joint Acc）
 
-| W | AMASS Val | IMUPoser Test |
-|---|-----------|---------------|
-| 30 | 0.828 | 0.626 |
-| 60 | 0.899 | 0.691 |
-| 90 | 0.928 | 0.719 |
-| 150 | 0.952 | 0.762 |
+| W | AMASS Val | LW+LP | LW+RP | RW+LP | RW+RP |
+|---|-----------|-------|-------|-------|-------|
+| 30 | 0.828 | 0.471 | 0.626 | 0.477 | 0.656 |
+| 60 | 0.899 | 0.533 | 0.691 | 0.519 | 0.722 |
+| 90 | 0.928 | 0.557 | 0.719 | 0.546 | 0.755 |
+| 150 | 0.952 | 0.601 | 0.762 | 0.590 | 0.784 |
 
 ### init_done（K=30 帧 ≈1s 预测稳定）
 
-| Split | 触发率 | 稳定预测正确率 | 中位耗时 |
-|-------|--------|----------------|----------|
+| Split / Combo | 触发率 | 稳定预测正确率 | 中位耗时 |
+|---------------|--------|----------------|----------|
 | AMASS Val | 0.924 | 0.960 | 1.0 s |
-| IMUPoser Test | 1.000 | 0.677 | 1.0 s |
+| IMUPoser LW+LP | 1.000 | 0.467 | 1.0 s |
+| IMUPoser LW+RP | 1.000 | 0.677 | 1.0 s |
+| IMUPoser RW+LP | 1.000 | 0.527 | 1.0 s |
+| IMUPoser RW+RP | 1.000 | 0.790 | 1.0 s |
 
 ### 简要结论
-- 合成域（AMASS）很强；真实域（IMUPoser）Joint 掉到 ~0.72，手机侧更难点。
-- 动态动作（如 JumpingJacks / Walking）较好；静止或上肢复杂动作较差。
-- 更长窗抬高窗级 Acc；IMUPoser 序列级 Acc 对窗长不敏感。
+- 合成域（AMASS）很强（Joint 0.93）；真实域四组合 Joint 约 **0.55–0.76**。
+- **右袋（RP）明显好于左袋（LP）**：LW+RP 0.72 / RW+RP 0.76，而 LW+LP / RW+LP 仅 ~0.55。
+- 手表侧整体不难（Watch Acc 0.88–0.94）；瓶颈主要在手机侧（Phone Acc 在 LP 组合掉到 ~0.60）。
+- 更长窗抬高窗级 Acc；序列级 Acc 对窗长相对不敏感。
+- 动态动作通常更好；静止/上肢复杂动作更难（详见各 `metrics_test_*.json` 的 `by_motion`）。
 
 ## 已知注意点
 - IMUPoser 官方数据是 5 路全开；测试标签 = watch/phone 槽位，不是 zip 里另附的佩戴元数据。
