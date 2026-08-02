@@ -61,6 +61,13 @@ def main():
         default=None,
         help="Optional JSON: {seq_key: {watch:0/1, phone:0/1}}",
     )
+    parser.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        help="Output filename under data.out_dir "
+        "(default: imuposer_test_{lw|rw}_{lp|rp}.pt)",
+    )
     args = parser.parse_args()
     cfg = load_config(resolve_path(args.config))
     set_seed(cfg["experiment"]["seed"])
@@ -134,9 +141,18 @@ def main():
         "y_phone": torch.tensor(yp, dtype=torch.long),
         "meta": metas,
     }
-    torch.save(out, out_dir / "imuposer_test.pt")
+    if args.output:
+        out_name = args.output
+    elif args.watch_side is not None and args.phone_side is not None:
+        w_name = "lw" if args.watch_side == 0 else "rw"
+        p_name = "lp" if args.phone_side == 0 else "rp"
+        out_name = f"imuposer_test_{w_name}_{p_name}.pt"
+    else:
+        out_name = "imuposer_test.pt"
+    out_path = out_dir / out_name
+    torch.save(out, out_path)
     print(f"test windows: {out['x'].shape}")
-    print(f"saved to {out_dir / 'imuposer_test.pt'}")
+    print(f"combo: watch={yw[0]} phone={yp[0]} -> {out_path}")
 
 
 if __name__ == "__main__":
