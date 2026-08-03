@@ -62,10 +62,19 @@ class MotionViewer:
         Disconnect to the viewer.
         """
         if self.conn is not None:
-            self.conn.shutdown(socket.SHUT_RDWR)
-            self.conn.close()
+            try:
+                self.conn.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            try:
+                self.conn.close()
+            except OSError:
+                pass
         if self.server_for_unity is not None:
-            self.server_for_unity.close()
+            try:
+                self.server_for_unity.close()
+            except OSError:
+                pass
         self.conn = None
         self.server_for_unity = None
         
