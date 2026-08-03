@@ -102,11 +102,22 @@ python experiments/week1_pos_cls/eval.py --split test \
 - `metrics_test_{lw_lp,lw_rp,rw_lp,rw_rp}.json`
 - `metrics_summary.json`
 
-### 5. 可视化
+### 5. 可视化（序列时间线 + SMPL mesh 标注）
 ```bash
-python experiments/week1_pos_cls/visualize.py --split test
+# 默认：自动挑好/坏序列，输出 timeline + mesh 拼图
+python experiments/week1_pos_cls/visualize.py --split test --combo lw_rp
+
+# 指定序列，并导出 GIF（随时间变化）
+python experiments/week1_pos_cls/visualize.py --split test --combo lw_rp \
+  --seq-ids 128,29 --gif --max-mesh-frames 30
 ```
-图在 `outputs/figures/`。
+图在 `outputs/figures/`：
+- `timeline_{good|bad}_seq{ID}_test_{combo}.png`：论文风格单图，横轴 Frame Number，纵轴位置 0/1/2/3（左/右手、左/右口袋），GT 实线 / Pred 虚线；默认自动各挑 1 条好/坏序列
+- `mesh_seq{ID}_test_{combo}.png`：GT 姿态 mesh + 腕/袋位置标注（空心=GT，实心=Pred）
+- `mesh_seq{ID}_test_{combo}.gif`：可选，mesh 随时间动画
+- `cm_*.png`：混淆矩阵
+
+说明：mesh 姿态来自 IMUPoser GT pose；颜色表示本周位置分类结果（不是姿态预测）。
 
 ## 结果记录
 
