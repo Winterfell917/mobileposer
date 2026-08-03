@@ -146,9 +146,22 @@ AMASS Val / IMUPoser LW+RP：2026-07-29；其余三组合：2026-08-02。
 | IMUPoser RW+LP | 1.000 | 0.527 | 1.0 s |
 | IMUPoser RW+RP | 1.000 | 0.790 | 1.0 s |
 
+### 廉价验证：LP≪RP 是否来自 AMASS 训练不平衡？
+
+检查产物：`outputs/logs/cheap_checks_lp_vs_rp.json`（2026-08-03）。
+
+| 检查 | 结果 |
+|------|------|
+| `amass_train` 四组合计数 | 各 **25.00%**（完全均衡） |
+| `amass_val` 四组合计数 | 各 **25.00%** |
+| AMASS Val Phone Acc（按组合） | LW+LP 0.949 / LW+RP 0.942 / RW+LP 0.957 / RW+RP 0.943 |
+| AMASS Val 汇总 | LP 均值 Phone **0.953**，RP 均值 **0.943**（仿真上 LP 还略好） |
+
+**结论：排除「AMASS 标签数量不平衡导致真机 LP 差」**。真机 LP≪RP 更可能来自 IMUPoser 域（左右袋信号可分性、设备/衣物/步态等），而非训练集组合偏斜。惯用手摆臂假说也与「差距在 Phone 不在 Watch」不太吻合，可降级。
+
 ### 简要结论
 - 合成域（AMASS）很强（Joint 0.93）；真实域四组合 Joint 约 **0.55–0.76**。
-- **右袋（RP）明显好于左袋（LP）**：LW+RP 0.72 / RW+RP 0.76，而 LW+LP / RW+LP 仅 ~0.55。
+- **右袋（RP）明显好于左袋（LP）**：LW+RP 0.72 / RW+RP 0.76，而 LW+LP / RW+LP 仅 ~0.55（且该差距**不见于** AMASS val）。
 - 手表侧整体不难（Watch Acc 0.88–0.94）；瓶颈主要在手机侧（Phone Acc 在 LP 组合掉到 ~0.60）。
 - 更长窗抬高窗级 Acc；序列级 Acc 对窗长相对不敏感。
 - 动态动作通常更好；静止/上肢复杂动作更难（详见各 `metrics_test_*.json` 的 `by_motion`）。
