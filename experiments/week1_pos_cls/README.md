@@ -110,14 +110,17 @@ python experiments/week1_pos_cls/visualize.py --split test --combo lw_rp
 # 推荐示例：Walking 好序列 / Boxing 坏序列
 python experiments/week1_pos_cls/visualize.py --split test --combo lw_rp --seq-ids 110,12
 
+# 按 seq-id 顺序导出全部序列的 GT/Pred timeline（默认不渲染 mesh）
+python experiments/week1_pos_cls/visualize.py --split test --combo lw_rp --all-sequences
+
 # 指定序列并导出 GIF
 python experiments/week1_pos_cls/visualize.py --split test --combo lw_rp \
   --seq-ids 110 --gif --max-mesh-frames 30
 ```
-图在 `outputs/figures/`：
-- `timeline_{good|bad}_seq{ID}_test_{combo}.png`：论文风格单图，横轴 Frame Number，纵轴位置 0/1/2/3（左/右手、左/右口袋），GT 实线 / Pred 虚线
-- `mesh_seq{ID}_test_{combo}.png`：GT 姿态 mesh + 腕/袋位置标注（空心=GT，实心=Pred）
-- `mesh_seq{ID}_test_{combo}.gif`：可选，mesh 随时间动画
+图在 `outputs/figures/`（`--all-sequences` 时在子目录 `timelines_all_test_{combo}/`）：
+- `timeline_seq{ID:03d}_{good|mid|bad}_test_{combo}.png`：按序号排序；横轴 Frame，纵轴位置 0/1/2/3，GT 实线 / Pred 虚线
+- `timeline_index_test_{combo}.json`：seq → 被试/动作名 / joint-acc 索引
+- `mesh_seq{ID}_test_{combo}.png`：GT 姿态 mesh + 位置标注（需 `--mesh`；全量导出默认关闭）
 - `cm_*.png`：混淆矩阵
 
 说明：mesh 姿态来自 IMUPoser GT pose；颜色表示本周位置分类结果（不是姿态预测）。
@@ -145,23 +148,24 @@ python experiments/week1_pos_cls/visualize.py --split test --combo lw_rp \
 
 **启动顺序（先 Python，再 Unity Play）**
 
-1. 仓库根目录启动推流（默认：**循环播放** + **位置对错标注**；连上后终端再按 Enter 才开始，除非加 `--auto-start`）：
+1. 仓库根目录启动推流：
    ```bash
-   # Walking 好序列（标注多为绿）
+   # 单序列（默认循环）
    python experiments/week1_pos_cls/stream_unity.py --combo lw_rp --seq-id 110 \
      --marker-offset 0.15 --marker-radius 0.09
 
-   # Boxing 坏序列（多见红球=Pred 错，蓝/青=GT）
-   python experiments/week1_pos_cls/stream_unity.py --combo lw_rp --seq-id 12 \
+   # 一次连接后自动从第一个 seq 播到最后一个（每条播一遍后退出）
+   python experiments/week1_pos_cls/stream_unity.py --combo lw_rp --all-seqs --auto-start \
      --marker-offset 0.15 --marker-radius 0.09
 
-   # 连上立刻播、不按 Enter
-   python experiments/week1_pos_cls/stream_unity.py --combo lw_rp --seq-id 110 --auto-start
+   # 只播一段区间，并循环整个播放列表
+   python experiments/week1_pos_cls/stream_unity.py --combo lw_rp --all-seqs \
+     --seq-start 0 --seq-end 20 --loop-playlist --auto-start
    ```
-2. 终端出现 `MotionViewer server start ... Waiting for unity3d to connect` 后，到 Unity 点 **Play**。
-3. 终端出现 `Unity connected` 后按 **Enter** 开始推流（若用了 `--auto-start` 则跳过）。
-4. 若人体被裁切：Game 视图右上角切到 **Front Camera / Side Camera**。
-5. 结束：终端 `Ctrl+C`，或先在 Unity 停 Play（断连后脚本会退出；属正常）。
+2. 终端出现 Waiting 后，到 Unity 点 **Play**。
+3. 若未加 `--auto-start`：出现 `Unity connected` 后按 **Enter** 开始。
+4. 若人体被裁切：Game 视图切到 **Front / Side Camera**。
+5. 结束：终端 `Ctrl+C`，或先停 Unity Play。
 
 **标注说明（默认开启）**
 
@@ -178,7 +182,10 @@ python experiments/week1_pos_cls/visualize.py --split test --combo lw_rp \
 | `--port 8989` | 监听端口（对齐 Unity Client） |
 | `--fps 30` | 播放帧率（默认用 config 的 data.fps） |
 | `--start` / `--end` | 裁剪帧区间 |
-| `--once` | 只播一遍后退出（默认循环） |
+| `--once` | 单序列：只播一遍后退出（默认循环） |
+| `--all-seqs` | 一次连接后按序播完所有（或 `--seq-start/--seq-end`）序列 |
+| `--loop-playlist` | 与 `--all-seqs` 联用：播完列表后从头再来 |
+| `--gap` | 序列之间停顿秒数（默认 0.5） |
 | `--auto-start` | 连上立刻播，不等 Enter |
 | `--no-markers` | 关闭位置球 |
 | `--marker-offset` / `--marker-radius` | 球体外偏距离 / 半径（米） |

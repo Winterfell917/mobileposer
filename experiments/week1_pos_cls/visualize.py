@@ -10,7 +10,9 @@ Outputs under experiments/week1_pos_cls/outputs/figures/:
 
 Usage (repo root):
   python experiments/week1_pos_cls/visualize.py --split test --combo lw_rp
-  python experiments/week1_pos_cls/visualize.py --split test --combo lw_lp --seq-ids 128,29 --gif
+  python experiments/week1_pos_cls/visualize.py --split test --combo lw_rp --seq-ids 110,12
+  # export GT/Pred timelines for ALL sequences (sorted by seq-id)
+  python experiments/week1_pos_cls/visualize.py --split test --combo lw_rp --all-sequences
 """
 from __future__ import annotations
 
@@ -480,6 +482,21 @@ def main():
     parser.add_argument("--combo", type=str, default="lw_rp", help="IMUPoser combo, e.g. lw_rp")
     parser.add_argument("--checkpoint", type=str, default=None)
     parser.add_argument("--seq-ids", type=str, default=None, help="Comma-separated sequence ids")
+    parser.add_argument(
+        "--all-sequences",
+        action="store_true",
+        help="Export timelines for ALL sequences in ascending seq-id order",
+    )
+    parser.add_argument(
+        "--timeline-only",
+        action="store_true",
+        help="Only save timelines (skip mesh). Implied by --all-sequences unless --mesh is set",
+    )
+    parser.add_argument(
+        "--mesh",
+        action="store_true",
+        help="Also render mesh montages (default on for few seqs; off for --all-sequences)",
+    )
     parser.add_argument("--num-sequences", type=int, default=None)
     parser.add_argument("--gif", action="store_true", help="Also export mesh GIF per sequence")
     parser.add_argument("--max-mesh-frames", type=int, default=24)
@@ -488,12 +505,24 @@ def main():
 
     cfg = load_config(resolve_path(args.config))
     set_seed(cfg["experiment"]["seed"])
-    fig_dir = resolve_path("experiments/week1_pos_cls/outputs/figures")
-    fig_dir.mkdir(parents=True, exist_ok=True)
 
     watch_side, phone_side = parse_combo(args.combo)
     tag = combo_tag(watch_side, phone_side)
     n_seq_vis = args.num_sequences if args.num_sequences is not None else 2
+
+    if args.all_sequences:
+        fig_dir = resolve_path("experiments/week1_pos_cls/outputs/figures") / f"timelines_all_{args.split}_{tag}"
+    else:
+        fig_dir = resolve_path("experiments/week1_pos_cls/outputs/figures")
+    fig_dir.mkdir(parents=True, exist_ok=True)
+
+    do_mesh = False if args.timeline_only else True
+    if args.all_sequences and not args.mesh:
+        do_mesh = False
+    if args.mesh:
+        do_mesh = True
+    if args.timeline_only:
+        do_mesh = False
 
     # ---- confusion matrices ----
     metrics_path = resolve_path(
@@ -504,18 +533,19 @@ def main():
             else "experiments/week1_pos_cls/outputs/logs/metrics_val.json"
         )
     )
-    if metrics_path.exists():
+    cm_dir = resolve_path("experiments/week1_pos_cls/outputs/figures")
+    cm_dir.mkdir(parents=True, exist_ok=True)
+    if metrics_path.exists() and not args.all_sequences:
         metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
-        plot_cm(np.array(metrics["cm_watch"]), ["LW", "RW"], f"Watch CM ({args.split}/{tag})", fig_dir / f"cm_watch_{args.split}_{tag}.png")
-        plot_cm(np.array(metrics["cm_phone"]), ["LP", "RP"], f"Phone CM ({args.split}/{tag})", fig_dir / f"cm_phone_{args.split}_{tag}.png")
-        plot_cm(np.array(metrics["cm_joint4"]), COMBO_NAMES, f"Joint-4 CM ({args.split}/{tag})", fig_dir / f"cm_joint4_{args.split}_{tag}.png")
-        print(f"saved confusion matrices -> {fig_dir}")
+        plot_cm(np.array(metrics["cm_watch"]), ["LW", "RW"], f"Watch CM ({args.split}/{tag})", cm_dir / f"cm_watch_{args.split}_{tag}.png")
+        plot_cm(np.array(metrics["cm_phone"]), ["LP", "RP"], f"Phone CM ({args.split}/{tag})", cm_dir / f"cm_phone_{args.split}_{tag}.png")
+        plot_cm(np.array(metrics["cm_joint4"]), COMBO_NAMES, f"Joint-4 CM ({args.split}/{tag})", cm_dir / f"cm_joint4_{args.split}_{tag}.png")
+        print(f"saved confusion matrices -> {cm_dir}")
 
     # ---- load data / model ----
     data_dir = resolve_path(cfg["data"]["out_dir"])
     if args.split == "val":
         pt = data_dir / "amass_val.pt"
-        # AMASS val has no single GT pose stream tied easily; timeline only
         pose_src = None
     else:
         pt = resolve_test_pt(data_dir, watch_side, phone_side)
@@ -545,7 +575,9 @@ def main():
     yw, yp, pw, pp = predict_all(model, loader, device)
     groups = group_by_sequence(ds.meta, yw, yp, pw, pp)
 
-    if args.seq_ids:
+    if args.all_sequences:
+        seq_ids = sorted(groups.keys())
+    elif args.seq_ids:
         seq_ids = [int(x) for x in args.seq_ids.split(",") if x.strip() != ""]
     else:
         seq_ids = pick_sequences(groups, n_seq_vis)
@@ -558,41 +590,57 @@ def main():
     stride = int(cfg["data"]["test_stride"] if args.split == "test" else cfg["data"]["train_stride"])
     window_len = int(cfg["data"]["window_len"])
 
-    # pose data for mesh (IMUPoser only)
     pose_data = None
     body_model = None
-    if args.split == "test" and pose_src is not None and pose_src.exists():
+    if do_mesh and args.split == "test" and pose_src is not None and pose_src.exists():
         pose_data = torch.load(pose_src, map_location="cpu")
         from articulate.model import ParametricModel  # noqa: WPS433
         from config import paths  # noqa: WPS433
 
         body_model = ParametricModel(paths.smpl_file)
 
+    index_rows = []
     for sid in seq_ids:
         if sid not in groups:
             print(f"[warn] seq {sid} not in predictions, skip")
             continue
         pack = groups[sid]
         motion = ""
+        pid = ""
+        motion_name = ""
         if sid < len(motion_map):
-            motion = f"{motion_map[sid]['pid']}/{motion_map[sid]['motion']}"
+            pid = motion_map[sid]["pid"]
+            motion_name = motion_map[sid]["motion"]
+            motion = f"{pid}/{motion_name}"
 
-        if pose_data is not None:
+        if pose_data is not None and sid < len(pose_data["pose"]):
             seq_len = int(pose_data["pose"][sid].shape[0])
         else:
-            # approximate length from last window
             seq_len = int(pack["starts"][-1] + window_len)
 
         ok = float(((pack["pw"] == pack["yw"]) & (pack["pp"] == pack["yp"])).mean())
         quality = "good" if ok >= 0.9 else ("bad" if ok < 0.5 else "mid")
         title = f"{args.split} {tag}  {motion}  [{quality}]".strip()
-        tl_path = fig_dir / f"timeline_{quality}_seq{sid}_{args.split}_{tag}.png"
+        # zero-padded seq id so files sort in seq order
+        tl_path = fig_dir / f"timeline_seq{sid:03d}_{quality}_{args.split}_{tag}.png"
         plot_sequence_timeline(sid, pack, seq_len, stride, window_len, title, tl_path)
         print(f"saved timeline {tl_path} (joint-acc={ok:.3f})")
+        index_rows.append(
+            {
+                "seq": sid,
+                "pid": pid,
+                "motion": motion_name,
+                "joint_acc": round(ok, 4),
+                "quality": quality,
+                "n_windows": len(pack["idxs"]),
+                "seq_len": seq_len,
+                "timeline": str(tl_path.name),
+            }
+        )
 
-        if body_model is not None and pose_data is not None:
-            mesh_png = fig_dir / f"mesh_seq{sid}_{args.split}_{tag}.png"
-            mesh_gif = fig_dir / f"mesh_seq{sid}_{args.split}_{tag}.gif" if args.gif else None
+        if body_model is not None and pose_data is not None and sid < len(pose_data["pose"]):
+            mesh_png = fig_dir / f"mesh_seq{sid:03d}_{args.split}_{tag}.png"
+            mesh_gif = fig_dir / f"mesh_seq{sid:03d}_{args.split}_{tag}.gif" if args.gif else None
             render_sequence_mesh(
                 body_model,
                 pose_data["pose"][sid],
@@ -606,6 +654,11 @@ def main():
                 fps=max(1, int(cfg["data"]["fps"] // 3)),
             )
             print(f"saved mesh montage {mesh_png}")
+
+    if index_rows:
+        index_path = fig_dir / f"timeline_index_{args.split}_{tag}.json"
+        index_path.write_text(json.dumps(index_rows, indent=2, ensure_ascii=False), encoding="utf-8")
+        print(f"saved index {index_path} ({len(index_rows)} sequences)")
 
     print(f"done. figures in {fig_dir}")
 
