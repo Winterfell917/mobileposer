@@ -59,28 +59,41 @@ def rotation_matrix_to_r6d(r: torch.Tensor) -> torch.Tensor:
     return torch.cat([r[..., :, 0], r[..., :, 1]], dim=-1)
 
 
-def r6d_to_rotation_matrix(r6d: torch.Tensor) -> torch.Tensor:
+def r6d_to_rotation_matrix(r6d: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
     """
     Zhou et al. 6D -> SO(3).
     r6d: [..., 6] -> [..., 3, 3]
     """
     a1 = r6d[..., 0:3]
     a2 = r6d[..., 3:6]
-    b1 = torch.nn.functional.normalize(a1, dim=-1)
+    b1 = torch.nn.functional.normalize(a1, dim=-1, eps=eps)
     b2 = a2 - (b1 * a2).sum(dim=-1, keepdim=True) * b1
-    b2 = torch.nn.functional.normalize(b2, dim=-1)
+    b2 = torch.nn.functional.normalize(b2, dim=-1, eps=eps)
     b3 = torch.cross(b1, b2, dim=-1)
     return torch.stack([b1, b2, b3], dim=-1)
 
 
+def rotation_cos(r1: torch.Tensor, r2: torch.Tensor) -> torch.Tensor:
+    """cos(theta) for geodesic angle; r1,r2 [...,3,3] -> [...]."""
+    rel = r1.transpose(-1, -2) @ r2
+    # Numerical noise can push (tr-1)/2 slightly outside [-1, 1].
+    return ((rel.diagonal(dim1=-2, dim2=-1).sum(-1) - 1.0) * 0.5).clamp(-1.0 + 1e-7, 1.0 - 1e-7)
+
+
+def rot_chordal_loss(r_hat: torch.Tensor, r_gt: torch.Tensor) -> torch.Tensor:
+    """
+    Smooth SO(3) training loss: mean(1 - cos(theta)).
+    Avoids acos gradient blow-up near theta=0 (which caused epoch~10 NaNs).
+    """
+    return (1.0 - rotation_cos(r_hat, r_gt)).mean()
+
+
 def geodesic_angle_deg(r1: torch.Tensor, r2: torch.Tensor) -> torch.Tensor:
     """
-    Geodesic angle between rotations (degrees).
+    Geodesic angle between rotations (degrees). Metric only — not for backprop.
     r1, r2: [..., 3, 3] -> [...]
     """
-    rel = r1.transpose(-1, -2) @ r2
-    cos = ((rel.diagonal(dim1=-2, dim2=-1).sum(-1) - 1.0) * 0.5).clamp(-1.0, 1.0)
-    return torch.acos(cos) * (180.0 / np.pi)
+    return torch.acos(rotation_cos(r1, r2)) * (180.0 / np.pi)
 
 
 def _euler_xyz_to_matrix(euler: torch.Tensor) -> torch.Tensor:

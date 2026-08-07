@@ -76,6 +76,8 @@ python experiments/week2_rot_ext/train.py \
 
 最优：`outputs/checkpoints/best_rot_err.pt`。
 
+**稳定性说明：** 训练损失用平滑的 \(1-\cos\theta\)（chordal），**不用** `acos` 反传（`acos` 在 \(\theta\to 0\) 时梯度爆炸，曾导致约第 10 epoch 起 NaN）。验证指标仍报测地线角度 °；并启用 `grad_clip_norm=1.0`、`lr=5e-4`。
+
 ### 3. 合成评估（主表）
 
 ```bash

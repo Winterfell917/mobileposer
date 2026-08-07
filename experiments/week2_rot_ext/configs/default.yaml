@@ -54,11 +54,15 @@ model:
 train:
   batch_size: 256
   num_workers: 4
-  lr: 1.0e-3
+  # slightly lower than 1e-3 to reduce late-stage blow-up risk
+  lr: 5.0e-4
   weight_decay: 1.0e-4
   epochs: 40
   device: cuda:0
   log_every: 20
+  # SO(3) train loss is chordal (1-cos); acos only used as val metric
+  r6d_loss_weight: 0.1
+  grad_clip_norm: 1.0
   # optional: weight on calibrated-ori alignment aux loss (0 = off)
   aux_align_weight: 0.0
 
