@@ -1,0 +1,80 @@
+# Week2: Device mounting extrinsic R_SB estimation (MVP)
+# Locked decisions:
+#   D1=A single-device, D2=A regress R_SB (6D), D3=A acc+ori, D4=A BiLSTM
+#   D5=A+B both (inject GT on IMUPoser + ori proxy)
+#   D6=A only (Week1 Joint Acc recovery)
+#   D7=B skip explicit T/N-pose baseline
+
+experiment:
+  name: week2_rot_ext
+  seed: 42
+
+# IMU slots (same as MobilePoser / Week1)
+# 0=LW, 1=RW, 2=LP, 3=RP
+imu_slots:
+  left_wrist: 0
+  right_wrist: 1
+  left_pocket: 2
+  right_pocket: 3
+
+data:
+  processed_amass_dir: data/processed
+  processed_imuposer_file: data/processed/eval/imuposer_full.pt
+  out_dir: experiments/week2_rot_ext/outputs/data
+  fps: 30
+  window_len: 90
+  train_stride: 15
+  test_stride: 15
+  acc_scale: 30.0
+  # per-device: acc(3) + ori_flat(9) = 12; + slot one-hot(4) at model time
+  feat_dim: 12
+  n_slots: 4
+  # random mount rotation magnitude (degrees), Euler XYZ in [-range, range]
+  offset_range_deg: 45.0
+  # sample a new R_SB for every window (more diversity) | once per sequence
+  offset_per: window
+  # no drift in Week2 main track
+  apply_drift: false
+  amass_subsets:
+    - CMU
+    - ACCAD
+    - BioMotionLab_NTroje
+  val_ratio: 0.2
+  # which slots to include in MVP (all four single-device slots)
+  train_slots: [0, 1, 2, 3]
+
+model:
+  n_hidden: 128
+  n_lstm_layers: 2
+  bidirectional: true
+  dropout: 0.3
+  # input = feat_dim + n_slots (one-hot)
+  use_slot_onehot: true
+
+train:
+  batch_size: 256
+  num_workers: 4
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  epochs: 40
+  device: cuda:0
+  log_every: 20
+  # optional: weight on calibrated-ori alignment aux loss (0 = off)
+  aux_align_weight: 0.0
+
+eval:
+  checkpoint: experiments/week2_rot_ext/outputs/checkpoints/best_rot_err.pt
+  batch_size: 256
+  # D5: IMUPoser inject-offset protocol (A=R_SB°, B=ori proxy°)
+  imuposer_max_seqs: 40
+  imuposer_slots: [0, 1, 2, 3]
+  # D6: Week1 downstream
+  week1_config: experiments/week1_pos_cls/configs/default.yaml
+  week1_checkpoint: experiments/week1_pos_cls/outputs/checkpoints/best_joint_acc.pt
+  week1_norm_stats: experiments/week1_pos_cls/outputs/data/norm_stats.pt
+  downstream_max_seqs: 30
+  downstream_combos:
+    - [0, 0]  # LW+LP
+    - [0, 1]  # LW+RP
+    - [1, 0]  # RW+LP
+    - [1, 1]  # RW+RP
