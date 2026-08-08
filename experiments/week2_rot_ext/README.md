@@ -50,6 +50,7 @@ experiments/week2_rot_ext/
   train.py / eval.py            # 单设备
   train_dual.py / eval_dual.py  # 双设备
   eval_imuposer_d5.py           # D5 A+B（单设备）
+  eval_imuposer_d5_dual.py      # D5 A+B（双设备联训）
   eval_downstream_week1.py      # D6-A（默认单设备×2；`--dual` 用联训模型）
   dataset/build_amass_rot_ext_dual.py
   outputs/{data,checkpoints,logs}
@@ -140,11 +141,15 @@ python experiments/week2_rot_ext/train_dual.py \
 # 合成评估
 python experiments/week2_rot_ext/eval_dual.py --split val
 
+# D5：IMUPoser 真机 inject（表+机同时注入，联训双头恢复）
+python experiments/week2_rot_ext/eval_imuposer_d5_dual.py \
+  --config experiments/week2_rot_ext/configs/default.yaml
+
 # D6：用联训模型接 Week1
 python experiments/week2_rot_ext/eval_downstream_week1.py --dual
 ```
 
-产物：`amass_dual_{train,val}.pt`、`norm_stats_dual.pt`、`best_rot_err_dual.pt`、`metrics_dual_val.json`、`metrics_downstream_week1_dual.json`。
+产物：`amass_dual_{train,val}.pt`、`norm_stats_dual.pt`、`best_rot_err_dual.pt`、`metrics_dual_val.json`、`metrics_imuposer_d5_dual.json`、`metrics_downstream_week1_dual.json`。
 
 ## D5 说明（为何 A、B 能一起做）
 
