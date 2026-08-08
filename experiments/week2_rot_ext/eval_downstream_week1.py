@@ -43,7 +43,7 @@ from dataset import (  # noqa: E402  week2
     sample_random_offsets,
     set_seed,
 )
-from models import RotExtrinsicNet  # noqa: E402
+from models import RotExtrinsicDualNet, RotExtrinsicNet  # noqa: E402
 
 # Avoid clashing with week2's `models` package name: load Week1 classifier by path.
 import importlib.util
@@ -94,6 +94,30 @@ def predict_rsb(
 
 
 @torch.no_grad()
+def predict_rsb_dual(
+    model: RotExtrinsicDualNet,
+    aw: torch.Tensor,
+    ow: torch.Tensor,
+    ap: torch.Tensor,
+    op: torch.Tensor,
+    slot_w: int,
+    slot_p: int,
+    acc_scale: float,
+    mean: torch.Tensor,
+    std: torch.Tensor,
+    device: torch.device,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    fw = make_device_features(aw, ow, acc_scale)
+    fp = make_device_features(ap, op, acc_scale)
+    feat = torch.cat([fw, fp], dim=-1)
+    x = _norm(feat, mean, std).unsqueeze(0).to(device)
+    sw = torch.tensor([slot_w], device=device)
+    sp = torch.tensor([slot_p], device=device)
+    (_, rw), (_, rp) = model(x, sw, sp)
+    return rw[0].cpu(), rp[0].cpu()
+
+
+@torch.no_grad()
 def classify_week1(
     clf: PosClassifier,
     feat: torch.Tensor,
@@ -115,14 +139,27 @@ def main():
     )
     parser.add_argument("--checkpoint", type=str, default=None)
     parser.add_argument("--max-seqs", type=int, default=None)
+    parser.add_argument(
+        "--dual",
+        action="store_true",
+        help="Use jointly-trained dual-device Week2 model (best_rot_err_dual.pt)",
+    )
     args = parser.parse_args()
 
     cfg = load_config(resolve_path(args.config))
     set_seed(cfg["experiment"]["seed"])
     gen = torch.Generator().manual_seed(cfg["experiment"]["seed"] + 11)
 
-    w2_ckpt = resolve_path(args.checkpoint or cfg["eval"]["checkpoint"])
-    w2_stats = resolve_path(cfg["data"]["out_dir"]) / "norm_stats.pt"
+    use_dual = bool(args.dual)
+    if use_dual:
+        default_ckpt = (
+            "experiments/week2_rot_ext/outputs/checkpoints/best_rot_err_dual.pt"
+        )
+        w2_ckpt = resolve_path(args.checkpoint or default_ckpt)
+        w2_stats = resolve_path(cfg["data"]["out_dir"]) / "norm_stats_dual.pt"
+    else:
+        w2_ckpt = resolve_path(args.checkpoint or cfg["eval"]["checkpoint"])
+        w2_stats = resolve_path(cfg["data"]["out_dir"]) / "norm_stats.pt"
     w1_ckpt = resolve_path(cfg["eval"]["week1_checkpoint"])
     w1_stats = resolve_path(cfg["eval"]["week1_norm_stats"])
     for p in (w2_ckpt, w2_stats, w1_ckpt, w1_stats):
@@ -141,15 +178,26 @@ def main():
     w1_mean = w1_st["mean"].float().view(1, -1)
     w1_std = w1_st["std"].float().view(1, -1)
 
-    rot_net = RotExtrinsicNet(
-        feat_dim=cfg["data"]["feat_dim"],
-        n_slots=cfg["data"]["n_slots"],
-        n_hidden=cfg["model"]["n_hidden"],
-        n_lstm_layers=cfg["model"]["n_lstm_layers"],
-        bidirectional=cfg["model"]["bidirectional"],
-        dropout=cfg["model"]["dropout"],
-        use_slot_onehot=cfg["model"]["use_slot_onehot"],
-    ).to(device)
+    if use_dual:
+        rot_net = RotExtrinsicDualNet(
+            feat_dim=24,
+            n_slots=cfg["data"]["n_slots"],
+            n_hidden=cfg["model"]["n_hidden"],
+            n_lstm_layers=cfg["model"]["n_lstm_layers"],
+            bidirectional=cfg["model"]["bidirectional"],
+            dropout=cfg["model"]["dropout"],
+            use_slot_onehot=cfg["model"]["use_slot_onehot"],
+        ).to(device)
+    else:
+        rot_net = RotExtrinsicNet(
+            feat_dim=cfg["data"]["feat_dim"],
+            n_slots=cfg["data"]["n_slots"],
+            n_hidden=cfg["model"]["n_hidden"],
+            n_lstm_layers=cfg["model"]["n_lstm_layers"],
+            bidirectional=cfg["model"]["bidirectional"],
+            dropout=cfg["model"]["dropout"],
+            use_slot_onehot=cfg["model"]["use_slot_onehot"],
+        ).to(device)
     rot_net.load_state_dict(torch.load(w2_ckpt, map_location=device)["model"])
     rot_net.eval()
 
@@ -224,12 +272,41 @@ def main():
                         aw_or, ow_or, ap_or, op_or, fps, acc_scale
                     )
                     # Learned
-                    r_w_hat = predict_rsb(
-                        rot_net, aw_o, ow_o, w_idx, acc_scale, w2_mean, w2_std, device
-                    )
-                    r_p_hat = predict_rsb(
-                        rot_net, ap_o, op_o, p_idx, acc_scale, w2_mean, w2_std, device
-                    )
+                    if use_dual:
+                        r_w_hat, r_p_hat = predict_rsb_dual(
+                            rot_net,
+                            aw_o,
+                            ow_o,
+                            ap_o,
+                            op_o,
+                            w_idx,
+                            p_idx,
+                            acc_scale,
+                            w2_mean,
+                            w2_std,
+                            device,
+                        )
+                    else:
+                        r_w_hat = predict_rsb(
+                            rot_net,
+                            aw_o,
+                            ow_o,
+                            w_idx,
+                            acc_scale,
+                            w2_mean,
+                            w2_std,
+                            device,
+                        )
+                        r_p_hat = predict_rsb(
+                            rot_net,
+                            ap_o,
+                            op_o,
+                            p_idx,
+                            acc_scale,
+                            w2_mean,
+                            w2_std,
+                            device,
+                        )
                     aw_l, ow_l = calibrate_with_rsb(aw_o, ow_o, r_w_hat)
                     ap_l, op_l = calibrate_with_rsb(ap_o, op_o, r_p_hat)
                     feat_learned = make_week1_dual_features(
@@ -258,6 +335,7 @@ def main():
 
     metrics = {
         "protocol": "AMASS + injected dual-device R_SB → calib → Week1 PosClassifier",
+        "week2_mode": "dual_joint" if use_dual else "single_device_x2",
         "n_sequences_used": seq_seen,
         "offset_range_deg": offset_range,
         "results": {k: _acc(v) for k, v in tallies.items()},
@@ -266,7 +344,11 @@ def main():
 
     log_dir = resolve_path("experiments/week2_rot_ext/outputs/logs")
     log_dir.mkdir(parents=True, exist_ok=True)
-    out_path = log_dir / "metrics_downstream_week1.json"
+    out_path = log_dir / (
+        "metrics_downstream_week1_dual.json"
+        if use_dual
+        else "metrics_downstream_week1.json"
+    )
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2)
     print(json.dumps(metrics, indent=2))

@@ -64,3 +64,68 @@ def make_loader(
         pin_memory=True,
         drop_last=False,
     )
+
+
+class DualRotExtDataset(Dataset):
+    """Dual-device samples: x[N,W,24], two slots, two R_SB."""
+
+    def __init__(
+        self,
+        pt_path: str | Path,
+        norm_stats: Optional[Dict[str, torch.Tensor]] = None,
+        normalize: bool = True,
+    ):
+        data = torch.load(pt_path, map_location="cpu")
+        self.x = data["x"].float()
+        self.slot_watch = data["slot_watch"].long()
+        self.slot_phone = data["slot_phone"].long()
+        self.r_sb_watch = data["r_sb_watch"].float()
+        self.r_sb_phone = data["r_sb_phone"].float()
+        self.r_sb_watch_6d = data["r_sb_watch_6d"].float()
+        self.r_sb_phone_6d = data["r_sb_phone_6d"].float()
+        self.meta = data.get("meta", [None] * len(self.x))
+
+        self.normalize = normalize
+        self.mean = None
+        self.std = None
+        if normalize:
+            if norm_stats is None:
+                raise ValueError("norm_stats required when normalize=True")
+            self.mean = norm_stats["mean"].float().view(1, 1, -1)
+            self.std = norm_stats["std"].float().view(1, 1, -1)
+
+    def __len__(self) -> int:
+        return self.x.shape[0]
+
+    def __getitem__(self, idx: int):
+        x = self.x[idx]
+        if self.normalize:
+            x = (x - self.mean.squeeze(0)) / self.std.squeeze(0)
+        return (
+            x,
+            self.slot_watch[idx],
+            self.slot_phone[idx],
+            self.r_sb_watch[idx],
+            self.r_sb_phone[idx],
+            self.r_sb_watch_6d[idx],
+            self.r_sb_phone_6d[idx],
+        )
+
+
+def make_dual_loader(
+    pt_path: str | Path,
+    norm_stats_path: str | Path,
+    batch_size: int,
+    shuffle: bool,
+    num_workers: int = 4,
+) -> DataLoader:
+    stats = load_norm_stats(norm_stats_path)
+    ds = DualRotExtDataset(pt_path, norm_stats=stats, normalize=True)
+    return DataLoader(
+        ds,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        num_workers=num_workers,
+        pin_memory=True,
+        drop_last=False,
+    )

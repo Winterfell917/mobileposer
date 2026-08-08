@@ -1,8 +1,9 @@
 # Week2: Device mounting extrinsic R_SB estimation (MVP)
 # Locked decisions:
-#   D1=A single-device, D2=A regress R_SB (6D), D3=A acc+ori, D4=A BiLSTM
+#   D1=A single-device (+ optional dual joint train via train_dual.py)
+#   D2=A regress R_SB (6D), D3=A acc+ori, D4=A BiLSTM
 #   D5=A+B both (inject GT on IMUPoser + ori proxy)
-#   D6=A only (Week1 Joint Acc recovery)
+#   D6=A only (Week1 Joint Acc recovery; use --dual for joint model)
 #   D7=B skip explicit T/N-pose baseline
 
 experiment:

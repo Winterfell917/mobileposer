@@ -6,7 +6,7 @@
 
 | 项 | 选择 | 含义 |
 |----|------|------|
-| D1 | **A** | MVP：单设备（每次一个 slot：LW/RW/LP/RP） |
+| D1 | **A + 双设备联训** | 主线仍保留单设备；另提供 **表+机联合训练**（`*_dual`） |
 | D2 | **A** | 网络显式回归 \(R_{SB}\)（6D → SO(3)） |
 | D3 | **A** | 输入 `acc(3)+ori_flat(9)=12` |
 | D4 | **A** | BiLSTM 编码器（对齐 Week1 风格） |
@@ -45,11 +45,13 @@ experiments/week2_rot_ext/
     build_amass_rot_ext.py
     build_imuposer_rot_ext.py   # 可选导出；D5 主评在 eval_imuposer_d5.py
     rot_dataset.py
-  models/rot_extrinsic.py
-  train.py
-  eval.py                       # AMASS val 角度误差 + None/Oracle/Learned
-  eval_imuposer_d5.py           # D5 A+B
-  eval_downstream_week1.py      # D6-A
+  models/rot_extrinsic.py       # 单设备
+  models/rot_extrinsic_dual.py  # 双设备联训（共享编码器 + 双头）
+  train.py / eval.py            # 单设备
+  train_dual.py / eval_dual.py  # 双设备
+  eval_imuposer_d5.py           # D5 A+B（单设备）
+  eval_downstream_week1.py      # D6-A（默认单设备×2；`--dual` 用联训模型）
+  dataset/build_amass_rot_ext_dual.py
   outputs/{data,checkpoints,logs}
 ```
 
@@ -113,6 +115,36 @@ python experiments/week2_rot_ext/eval_downstream_week1.py \
 
 日志：`outputs/logs/metrics_downstream_week1.json`。  
 期望：`none ≪ learned ≤ oracle`。
+
+### 6. 双设备联训（表 + 机一起估 \(R_{SB}\)）
+
+与单设备并行的一条线：一次前向同时输出手表、手机两套外参。
+
+| 项 | 设定 |
+|----|------|
+| 输入 | `[T,24]` = watch(acc+ori 12) + phone(12)；条件为 watch/phone 的 slot one-hot |
+| 输出 | \(\hat{R}_{SB}^{\mathrm{watch}}\)、\(\hat{R}_{SB}^{\mathrm{phone}}\)（各 6D→SO(3)） |
+| 结构 | 共享 BiLSTM 编码器 + `head_watch` / `head_phone` |
+| 损失 | chordal(watch) + chordal(phone)（+ 两侧 6D MSE） |
+| 数据 | 每窗枚举 4 种佩戴组合；两侧 **独立** 随机 \(R_{SB}\) |
+
+```bash
+# 造双设备数据（不覆盖单设备 amass_train.pt）
+python experiments/week2_rot_ext/dataset/build_amass_rot_ext_dual.py \
+  --config experiments/week2_rot_ext/configs/default.yaml
+
+# 训练 → best_rot_err_dual.pt
+python experiments/week2_rot_ext/train_dual.py \
+  --config experiments/week2_rot_ext/configs/default.yaml
+
+# 合成评估
+python experiments/week2_rot_ext/eval_dual.py --split val
+
+# D6：用联训模型接 Week1
+python experiments/week2_rot_ext/eval_downstream_week1.py --dual
+```
+
+产物：`amass_dual_{train,val}.pt`、`norm_stats_dual.pt`、`best_rot_err_dual.pt`、`metrics_dual_val.json`、`metrics_downstream_week1_dual.json`。
 
 ## D5 说明（为何 A、B 能一起做）
 
