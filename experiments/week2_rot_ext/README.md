@@ -107,15 +107,26 @@ python experiments/week2_rot_ext/eval_imuposer_d5.py \
 
 ### 5. D6-A：校准后接 Week1（需 Week1 + Week2 权重）
 
-在 AMASS 上对表+机分别注入 \(R_{SB}\)，None / Learned / Oracle 校准后喂 Week1 分类器，看 Joint Acc 是否回升。
+对表+机分别注入 \(R_{SB}\)，None / Learned / Oracle 校准后喂 Week1 分类器，看 Joint Acc 是否回升。  
+**同一命令会跑两套数据：**
+
+| 数据 | 含义 |
+|------|------|
+| **AMASS** | 合成骨对齐 IMU（主表，与此前一致） |
+| **IMUPoser** | 真机录制流当作干净参考，再 inject \(R_{SB}\)（与 D5 同协议），再接 Week1 |
 
 ```bash
+# 单设备 Week2 ×2
 python experiments/week2_rot_ext/eval_downstream_week1.py \
   --config experiments/week2_rot_ext/configs/default.yaml
+
+# 仅 IMUPoser / 仅 AMASS（可选）
+# python .../eval_downstream_week1.py --skip-amass
+# python .../eval_downstream_week1.py --skip-imuposer
 ```
 
-日志：`outputs/logs/metrics_downstream_week1.json`。  
-期望：`none ≪ learned ≤ oracle`。
+日志：`outputs/logs/metrics_downstream_week1.json`（内含 `datasets.amass` / `datasets.imuposer`）。  
+期望：两边均为 `none ≪ learned ≤ oracle`。
 
 ### 6. 双设备联训（表 + 机一起估 \(R_{SB}\)）
 
@@ -145,11 +156,11 @@ python experiments/week2_rot_ext/eval_dual.py --split val
 python experiments/week2_rot_ext/eval_imuposer_d5_dual.py \
   --config experiments/week2_rot_ext/configs/default.yaml
 
-# D6：用联训模型接 Week1
+# D6：用联训模型接 Week1（AMASS + IMUPoser 真机 inject）
 python experiments/week2_rot_ext/eval_downstream_week1.py --dual
 ```
 
-产物：`amass_dual_{train,val}.pt`、`norm_stats_dual.pt`、`best_rot_err_dual.pt`、`metrics_dual_val.json`、`metrics_imuposer_d5_dual.json`、`metrics_downstream_week1_dual.json`。
+产物：`amass_dual_{train,val}.pt`、`norm_stats_dual.pt`、`best_rot_err_dual.pt`、`metrics_dual_val.json`、`metrics_imuposer_d5_dual.json`、`metrics_downstream_week1_dual.json`（含 amass / imuposer）。
 
 ## D5 说明（为何 A、B 能一起做）
 
