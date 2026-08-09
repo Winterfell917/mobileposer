@@ -200,41 +200,90 @@ python experiments/week1_pos_cls/visualize.py --split test --combo lw_rp \
 
 ## 结果记录
 
-配置：`default.yaml`；训练窗长 W=90；checkpoint=`best_joint_acc.pt`。  
-AMASS Val / IMUPoser LW+RP：2026-07-29；其余三组合：2026-08-02。  
+配置：`default.yaml`；训练窗长 W=90；checkpoint=`best_joint_acc.pt`（**未重训**，仍为 AMASS 上训得的权重）。  
 每个 IMUPoser 组合均为 n=6003 窗 / 167 序列。
 
-### 主表（W=90）
+### 修复：IMUPoser 真机 IMU 与 DIP 全局系对齐（2026-08-09）
+
+**问题：** `data_process_mocap.process_imuposer` 原先只对 `pose`/`tran` 做 DIP 对齐，写入 `imuposer_full.pt` 的录制 `acc`/`ori` 未乘同一旋转，与 AMASS（DIP 对齐后合成）全局约定可能不一致。
+
+**代码修改：** `mobileposer/data_process_mocap.py` 中，对齐矩阵  
+\(R_{\mathrm{align}}=\begin{bmatrix}-1&0&0\\0&0&1\\0&1&0\end{bmatrix}\)  
+同时作用于：
+
+- `pose[:,0]`、`tran`（原有）
+- **`ori ← R_align @ ori`**
+- **`acc ← R_align @ a`**（按全局自由向量）
+
+**复现步骤（本次评测已执行）：**
+
+```bash
+cd mobileposer && python data_process_mocap.py --dataset imuposer   # 重写 imuposer_full.pt
+cd ..
+# 重建 Week1 四组合测试集
+for ws in 0 1; do for ps in 0 1; do
+  python experiments/week1_pos_cls/dataset/build_imuposer_pos_cls.py \
+    --config experiments/week1_pos_cls/configs/default.yaml \
+    --watch-side $ws --phone-side $ps
+done; done
+# 四组合评估
+python experiments/week1_pos_cls/eval.py --split test \
+  --combos lw_lp,lw_rp,rw_lp,rw_rp
+```
+
+日志：`outputs/logs/metrics_summary.json`（2026-08-09 13:35）、`metrics_test_{lw_lp,lw_rp,rw_lp,rw_rp}.json`。
+
+### 主表（W=90）— 对齐后最新
 
 | Split | Combo | Watch Acc | Phone Acc | Joint Acc | Seq Joint Acc |
 |-------|-------|-----------|-----------|-----------|---------------|
 | AMASS Val | 4 组合混合 | 0.977 | 0.948 | **0.928** | **0.976** |
-| IMUPoser | LW+LP | 0.885 | 0.617 | **0.557** | **0.467** |
-| IMUPoser | LW+RP | 0.891 | 0.790 | **0.719** | **0.749** |
-| IMUPoser | RW+LP | 0.937 | 0.594 | **0.546** | **0.461** |
-| IMUPoser | RW+RP | 0.944 | 0.793 | **0.755** | **0.778** |
+| IMUPoser | LW+LP | 0.771 | 0.577 | **0.430** | **0.413** |
+| IMUPoser | LW+RP | 0.795 | 0.555 | **0.456** | **0.383** |
+| IMUPoser | RW+LP | 0.845 | 0.592 | **0.506** | **0.431** |
+| IMUPoser | RW+RP | 0.829 | 0.520 | **0.414** | **0.365** |
 
 - **Joint Acc**：单窗上手表+手机都对。
-- **Seq Joint Acc**：同一序列内对窗预测做多数投票后再算 Joint（更接近「初始化」判定）。
+- **Seq Joint Acc**：同一序列内对窗预测做多数投票后再算 Joint。
+- AMASS Val 与对齐前相同（测试未动合成集、未重训）。
 
-### 窗长消融（Joint Acc）
+### 对齐前 → 对齐后（Joint Acc，便于对照）
+
+| Combo | 对齐前 (≤08-02) | **对齐后 (08-09)** | Δ |
+|-------|-----------------|--------------------|---|
+| LW+LP | 0.557 | **0.430** | −0.127 |
+| LW+RP | 0.719 | **0.456** | −0.263 |
+| RW+LP | 0.546 | **0.506** | −0.040 |
+| RW+RP | 0.755 | **0.414** | −0.341 |
+
+**分析（重要）：**
+
+1. **真机 Joint 全面下降**（约 0.41–0.51，此前 RP 组合曾到 0.72–0.76）。  
+2. 原先突出的 **RP ≫ LP** 在对齐后**基本消失**（四组合 Joint 挤在 ~0.41–0.51）。  
+3. **Watch Acc 也明显下降**（约 0.77–0.85，此前 0.88–0.94）。  
+4. 数学上：Week1 特征里 gyro 由相邻 `ori` 差分得到，对**常数左乘** \(R_{\mathrm{align}}\) **不变**；变化主要来自 **acc 被当作全局向量旋转**。若录制 `acc` 并非与 AMASS `vacc` 同约定的全局自由向量，强行按全局旋转会**加重**域差——与本次数字一致。  
+5. **结论：** DIP 对齐修复了「pose 对齐、IMU 未对齐」的预处理不一致；但在「不重训、仅改测试 IMU」设定下，**不能**说对齐一定提升位置分类。下一步应验证 IMUPoser `acc` 是否全局、或在对齐后的真机分布上 **微调/重训** Week1，再比公平对照。
+
+### 窗长消融（Joint Acc）— 对齐后
 
 | W | AMASS Val | LW+LP | LW+RP | RW+LP | RW+RP |
 |---|-----------|-------|-------|-------|-------|
-| 30 | 0.828 | 0.471 | 0.626 | 0.477 | 0.656 |
-| 60 | 0.899 | 0.533 | 0.691 | 0.519 | 0.722 |
-| 90 | 0.928 | 0.557 | 0.719 | 0.546 | 0.755 |
-| 150 | 0.952 | 0.601 | 0.762 | 0.590 | 0.784 |
+| 30 | 0.828 | 0.377 | 0.411 | 0.451 | 0.387 |
+| 60 | 0.899 | 0.408 | 0.437 | 0.491 | 0.400 |
+| 90 | 0.928 | 0.430 | 0.456 | 0.506 | 0.414 |
+| 150 | 0.952 | 0.462 | 0.492 | 0.537 | 0.430 |
 
-### init_done（K=30 帧 ≈1s 预测稳定）
+（对齐前 IMUPoser 窗长表见 git 历史；趋势仍是更长窗略升，但绝对水平低于对齐前。）
+
+### init_done（K=30 帧 ≈1s）— 对齐后
 
 | Split / Combo | 触发率 | 稳定预测正确率 | 中位耗时 |
 |---------------|--------|----------------|----------|
 | AMASS Val | 0.924 | 0.960 | 1.0 s |
-| IMUPoser LW+LP | 1.000 | 0.467 | 1.0 s |
-| IMUPoser LW+RP | 1.000 | 0.677 | 1.0 s |
-| IMUPoser RW+LP | 1.000 | 0.527 | 1.0 s |
-| IMUPoser RW+RP | 1.000 | 0.790 | 1.0 s |
+| IMUPoser LW+LP | 1.000 | 0.443 | 1.0 s |
+| IMUPoser LW+RP | 1.000 | 0.419 | 1.0 s |
+| IMUPoser RW+LP | 1.000 | 0.443 | 1.0 s |
+| IMUPoser RW+RP | 1.000 | 0.407 | 1.0 s |
 
 ### 廉价验证：LP≪RP 是否来自 AMASS 训练不平衡？
 
@@ -247,51 +296,55 @@ AMASS Val / IMUPoser LW+RP：2026-07-29；其余三组合：2026-08-02。
 | AMASS Val Phone Acc（按组合） | LW+LP 0.949 / LW+RP 0.942 / RW+LP 0.957 / RW+RP 0.943 |
 | AMASS Val 汇总 | LP 均值 Phone **0.953**，RP 均值 **0.943**（仿真上 LP 还略好） |
 
-**结论：排除「AMASS 标签数量不平衡导致真机 LP 差」**。真机 LP≪RP 更可能来自 IMUPoser 域（左右袋信号可分性、设备/衣物/步态等），而非训练集组合偏斜。惯用手摆臂假说也与「差距在 Phone 不在 Watch」不太吻合，可降级。
+**结论（针对对齐前现象）：** 可排除「AMASS 标签数量不平衡导致真机 LP 差」。对齐前真机 LP≪RP 更可能来自旧 IMUPoser 域（左右袋可分性、设备/衣物等），而非训练集组合偏斜。  
+**对齐后补充：** 见上主表，RP≫LP 已基本消失；该项历史假说不再是当前瓶颈叙述。
 
-### 按运动类型（by_motion，四组合窗级加权平均，W=90）
+### 按运动类型（by_motion，对齐后四组合窗级加权，W=90）
 
-数据来自 `outputs/logs/metrics_test_{lw_lp,lw_rp,rw_lp,rw_rp}.json` 的 `by_motion`。  
-IMUPoser 原始命名有拼写/大小写变体，下表已合并同义名（如 `Joogging→Jogging`、`Lower Body→LowerBody`、`Armcrossing/ArmsCrossing→ArmCrossing`、`startClap*→StartClapping` 等）。`n` 为四组合窗数之和。
+数据来自 2026-08-09 的 `metrics_test_*.json`（原始运动名未做同义合并；`Lower Body` / `LowerBody` 分列）。
 
-**准确率较高（全身/下肢动态为主）**
-
-| 运动 | n | Joint | Watch | Phone |
-|------|--:|------:|------:|------:|
-| Walking | 6128 | **0.870** | 0.947 | 0.918 |
-| Jogging | 1704 | **0.814** | 0.910 | 0.896 |
-| JumpingJacks | 776 | **0.744** | 0.974 | 0.753 |
-| LowerBody | 2696 | **0.698** | 0.932 | 0.753 |
-| Hopping | 656 | **0.681** | 0.817 | 0.838 |
-
-**准确率较低（上肢精细/对称动作，Phone 侧常崩）**
+**相对较高**
 
 | 运动 | n | Joint | Watch | Phone |
 |------|--:|------:|------:|------:|
-| ArmRaises | 1772 | **0.448** | 0.936 | 0.467 |
-| ArmCrossing | 784 | **0.425** | 0.897 | 0.480 |
-| StartClapping | 200 | **0.345** | 0.745 | 0.475 |
-| Waving | 836 | **0.329** | 0.895 | 0.362 |
-| ClappingFull | 368 | **0.307** | 0.582 | 0.497 |
-| Punching | 76 | **0.000** | 0.447 | 0.000 |
+| Hopping | 656 | **0.677** | 0.895 | 0.742 |
+| Lower Body | 428 | **0.668** | 0.958 | 0.706 |
+| Walking | 6128 | **0.659** | 0.789 | 0.841 |
+| Kicking | 436 | **0.626** | 0.982 | 0.635 |
+| LowerBody | 2268 | **0.624** | 0.947 | 0.662 |
 
-中游常见：`Pushups` / `Kicking` / `TennisSwings` / `Basketball` / `HeadMovements` / `Sitting` / `Boxing` / `ArmSwings`（Joint 约 0.45–0.61）。
+**明显偏低**
 
-观察：
-- **高分运动**多为 Walking、Jogging、JumpingJacks、LowerBody、Hopping 等，身体整体加速度大，左右袋更易分。
-- **低分运动**多为 ArmRaises、ArmCrossing、Waving、ClappingFull、Punching 等上肢动作：Watch 往往仍高，**Phone Acc 掉到 ~0.36–0.50**，拖垮 Joint。
-- 同名运动在 **LP vs RP** 上差距仍大（例如 ArmCrossing 在 LP 组合常接近 0，在 RP 可到 0.7+）；上表是四组合平均。
-- 单个「好序列」≠该运动整体容易：如 ClappingFull 整体 Joint 仅 0.307，但 LW+RP 下个别序列（如 seq102）可到 1.0。
+| 运动 | n | Joint | Watch | Phone |
+|------|--:|------:|------:|------:|
+| ArmRaisesRedo | 220 | **0.164** | 0.877 | 0.218 |
+| ArmsCrossing | 80 | **0.138** | 0.775 | 0.175 |
+| Boxing | 556 | **0.115** | 0.304 | 0.275 |
+| ClappingFull | 368 | **0.106** | 0.321 | 0.280 |
+| Punching | 76 | **0.000** | 0.000 | 0.000 |
 
-### 简要结论
-- 合成域（AMASS）很强（Joint 0.93）；真实域四组合 Joint 约 **0.55–0.76**。
-- **右袋（RP）明显好于左袋（LP）**：LW+RP 0.72 / RW+RP 0.76，而 LW+LP / RW+LP 仅 ~0.55（且该差距**不见于** AMASS val）。
-- 手表侧整体不难（Watch Acc 0.88–0.94）；瓶颈主要在手机侧（Phone Acc 在 LP 组合掉到 ~0.60）。
-- 更长窗抬高窗级 Acc；序列级 Acc 对窗长相对不敏感。
-- 运动层面：**Walking / Jogging / JumpingJacks / LowerBody / Hopping** 明显更好；**ArmRaises / ArmCrossing / Waving / ClappingFull / Punching** 明显更差（详见上表）。
+观察：下肢/行走类仍相对更好，但 Walking Joint 自对齐前 ~0.87 降到 ~0.66；上肢精细动作依然最差，且 Watch 也出现崩盘（Boxing / Clapping / Punching）。
+
+### 简要结论（对齐后）
+
+- 合成域（AMASS）仍强（Joint **0.928**，未重训）。  
+- 真机四组合 Joint 约 **0.41–0.51**，**低于**对齐前的 0.55–0.76。  
+- 对齐前显著的 **RP ≫ LP** 在本次设定下不再成立。  
+- 预处理「IMU 与 pose 同 DIP」在工程上更自洽，但对当前位置分类器并非免费增益；gyro 不变、acc 旋转是主要变化通道。  
+- 后续：核对 IMUPoser `acc` 坐标系假设；或在对齐后真机分布上微调 Week1 再比。
+
+### 附录：对齐前主表（历史，≤2026-08-02）
+
+| Split | Combo | Watch | Phone | Joint | Seq Joint |
+|-------|-------|------:|------:|------:|----------:|
+| IMUPoser | LW+LP | 0.885 | 0.617 | 0.557 | 0.467 |
+| IMUPoser | LW+RP | 0.891 | 0.790 | 0.719 | 0.749 |
+| IMUPoser | RW+LP | 0.937 | 0.594 | 0.546 | 0.461 |
+| IMUPoser | RW+RP | 0.944 | 0.793 | 0.755 | 0.778 |
 
 ## 已知注意点
 - IMUPoser 官方数据是 5 路全开；测试标签 = watch/phone 槽位，不是 zip 里另附的佩戴元数据。
-- 腕 IMU 特征来自肘关节朝向代理，报告里写清楚。
+- 腕 IMU 朝向来自肘关节 18/19 代理，报告里写清楚。
+- **2026-08-09 起** `imuposer_full.pt` 的录制 `acc/ori` 与 pose 一并 DIP 对齐；旧测试 `.pt` 需按上文步骤重建。
 - 静止段左右难分：可后续按动态/准静态分开统计。
 - `outputs/` 下 `.pt` / checkpoint / metrics JSON 视为可复现产物，默认不提交；以本 README 结果表为对外记录。
