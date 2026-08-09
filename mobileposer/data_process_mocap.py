@@ -343,14 +343,25 @@ def process_imuposer(split: str="train", motion_type: str=None):
                 ori = fdata['imu'][:, 5*3:].view(-1, 5, 3, 3)
                 pose = math.axis_angle_to_rotation_matrix(fdata['pose']).view(-1, 24, 3, 3)
                 tran = fdata['trans'].to(torch.float32)
-                
-                 # align IMUPoser global fame with DIP
-                rot = torch.tensor([[[-1, 0, 0], [0, 0, 1], [0, 1, 0.]]])
-                pose[:, 0] = rot.matmul(pose[:, 0])
-                tran = tran.matmul(rot.squeeze())
-                
-                # add gt accs and oris
-                grot, joint, vert = body_model.forward_kinematics(pose=pose, tran=tran, calc_mesh=True)
+
+                # Align IMUPoser global frame with DIP (same convention as AMASS→DIP).
+                # Must transform recorded IMU as well as pose/tran; otherwise acc/ori stay
+                # in the original IMUPoser world while pose is DIP-aligned.
+                dip_align = torch.tensor(
+                    [[[-1, 0, 0], [0, 0, 1], [0, 1, 0.]]], dtype=acc.dtype
+                )
+                R_align = dip_align.squeeze(0)  # [3, 3]
+                pose[:, 0] = dip_align.matmul(pose[:, 0])
+                tran = tran.matmul(R_align)
+                # Global orientation: R' = R_align @ R
+                ori = R_align.matmul(ori)
+                # Global acceleration (free vector): a' = R_align @ a
+                acc = R_align.matmul(acc.unsqueeze(-1)).squeeze(-1)
+
+                # Synthetic GT IMU from aligned pose (already in DIP frame)
+                grot, joint, vert = body_model.forward_kinematics(
+                    pose=pose, tran=tran, calc_mesh=True
+                )
                 vacc = _syn_acc(vert[:, vi_mask])
                 vrot = grot[:, ji_mask]
 
