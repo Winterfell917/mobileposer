@@ -183,7 +183,25 @@ python experiments/week2_rot_ext/eval_downstream_week1.py --dual
 > 记录日期：2026-08-09（单设备主结果 08-07；双设备联训与 D6-IMUPoser 补齐后汇总）  
 > 设定：`offset_range=45°`，窗长 90，AMASS 子集 CMU / ACCAD / BioMotionLab_NTroje  
 > 权重：单设备 `best_rot_err.pt`（epoch 37）；双设备 `best_rot_err_dual.pt`（epoch 37）  
-> 日志：`train_log.csv` / `train_log_dual.csv`、`metrics_val.json` / `metrics_dual_val.json`、`metrics_imuposer_d5.json` / `metrics_imuposer_d5_dual.json`、`metrics_downstream_week1.json` / `metrics_downstream_week1_dual.json`
+> 日志：`train_log.csv` / `train_log_dual.csv`、`metrics_val.json` / `metrics_dual_val.json`、`metrics_imuposer_d5.json` / `metrics_imuposer_d5_dual.json`、`metrics_downstream_week1.json` / `metrics_downstream_week1_dual.json`  
+> **综合汇总：** `python experiments/week2_rot_ext/summarize_metrics.py` → `outputs/logs/metrics_summary.json`
+
+### 综合主表（None / Learned / Oracle）
+
+把分散的 A1–A3 / B1–B3 收成一张总表。外参行单位为 °（越低越好）；D6 行为 Week1 Joint Acc（越高越好）。
+
+| Track | 评测 | None | **Learned** | Oracle |
+|-------|------|-----:|------------:|-------:|
+| 单设备 | AMASS 外参 ° | 42.95 | **13.00** | 0 |
+| 双设备 | AMASS 外参 ° | 42.90 | **12.65** | 0 |
+| 单设备 | D5 真机外参 ° | 43.01 | **25.09** | ~0.03 |
+| 双设备 | D5 真机外参 ° | 43.08 | **21.46** | ~0.03 |
+| 单设备 | D6 AMASS Joint | 0.596 | **0.883** | 0.938 |
+| 双设备 | D6 AMASS Joint | 0.596 | **0.869** | 0.938 |
+| 单设备 | D6 IMUPoser Joint | 0.505 | **0.664** | 0.682 |
+| 双设备 | D6 IMUPoser Joint | 0.505 | **0.682** | 0.682 |
+
+**一眼结论：** 外参任务两条线都成立（None ≫ Learned ≫ Oracle）；联训在合成/真机外参与真机 D6 上更好；合成 D6 Joint 仍略偏向单设备×2。下文 A/B 为分项明细。
 
 ---
 
