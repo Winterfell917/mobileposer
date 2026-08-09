@@ -178,27 +178,31 @@ python experiments/week2_rot_ext/eval_downstream_week1.py --dual
 
 ---
 
-## 实验结果（最新一轮：chordal 损失重训后）
+## 实验结果
 
-> 记录日期：2026-08-07  
-> 权重：`outputs/checkpoints/best_rot_err.pt`（**epoch 37**）  
-> 原始日志：`outputs/logs/train_log.csv`、`metrics_val.json`、`metrics_imuposer_d5.json`、`metrics_downstream_week1.json`  
-> 设定：`offset_range=45°`，窗长 90，AMASS 子集 CMU / ACCAD / BioMotionLab_NTroje
+> 记录日期：2026-08-09（单设备主结果 08-07；双设备联训与 D6-IMUPoser 补齐后汇总）  
+> 设定：`offset_range=45°`，窗长 90，AMASS 子集 CMU / ACCAD / BioMotionLab_NTroje  
+> 权重：单设备 `best_rot_err.pt`（epoch 37）；双设备 `best_rot_err_dual.pt`（epoch 37）  
+> 日志：`train_log.csv` / `train_log_dual.csv`、`metrics_val.json` / `metrics_dual_val.json`、`metrics_imuposer_d5.json` / `metrics_imuposer_d5_dual.json`、`metrics_downstream_week1.json` / `metrics_downstream_week1_dual.json`
 
-### 0. 训练稳定性
+---
+
+### A. 单设备（`RotExtrinsicNet`，一次估一台）
+
+#### A0. 训练稳定性
 
 | 项 | 结果 |
 |----|------|
 | 训练窗 / 验证窗 | 336,412 / 79,636（四槽均衡） |
 | 损失 | chordal \(1-\cos\theta\) + 0.1×6D MSE；`lr=5e-4`，`grad_clip=1.0` |
-| 全程 | **40 epoch 均有限，无 NaN**（此前用 `acos` 反传时约第 10 epoch 起崩溃） |
+| 全程 | **40 epoch 均有限，无 NaN**（此前 `acos` 反传约第 10 epoch 起崩溃） |
 | 最佳 | epoch 37，val **13.00°**；epoch 40 ≈ 13.03° |
 
-训练从 ~21.5°（epoch 1）平滑降到 ~13°，后期在 13.0–13.3° 小幅波动，略有过拟合但不严重。
+训练从 ~21.5°（epoch 1）平滑降到 ~13°，后期在 13.0–13.3° 小幅波动。
 
-### 1. AMASS 验证（`eval.py --split val`）
+#### A1. AMASS 合成评估（`eval.py --split val`）
 
-主指标：\(\mathrm{geo}(\hat{R}_{SB}, R_{SB})\)（°），全量 79,636 窗。
+全量 79,636 窗；主指标 \(\mathrm{geo}(\hat{R}_{SB}, R_{SB})\)（°）。
 
 | | 均值 ° | 中位 ° |
 |--|--------|--------|
@@ -211,29 +215,15 @@ python experiments/week2_rot_ext/eval_downstream_week1.py --dual
 | LW | 15.68 | 11.99 | 19909 |
 | RW | 16.28 | 12.50 | 19909 |
 
-对照（`eval.py` 内 contrast，1280 窗子集；**全量以 13.00° 为准**）：
+Contrast（1280 窗子集；**全量以 13.00° 为准**）：None 42.95° / Learned（子集）19.92° / Oracle 0°。
 
-| 设定 | 平均 ° |
-|------|--------|
-| None（假设 \(R_{SB}=I\)） | 42.95 |
-| Learned（子集） | 19.92 |
-| Oracle | 0.0 |
+**要点：** 相对乱戴 ~43° 压到约 1/3；**口袋 (~10°) 明显好于手腕 (~16°)**。
 
-**分析：**
+#### A2. D5：IMUPoser 真机 inject（`eval_imuposer_d5.py`）
 
-- 相对注入外参本身约 43°，全量误差压到约 **1/3**，说明网络学到了静态安装旋转，不是恒等猜测。  
-- **口袋明显好于手腕**（~10° vs ~16°）：腕部运动更丰富，短窗内更难把「恒定外参」从变化姿态里拆干净——与 Week1「腕更难」一致。  
-- contrast 子集 Learned 偏高，是抽样偏差；汇报请用全量均值/中位。
+40 序列、5920 窗；录制流当干净参考，注入已知 \(R_{SB}\) 再恢复。
 
-### 2. D5：IMUPoser 真机 inject（`eval_imuposer_d5.py`）
-
-协议：40 序列、5920 窗；在已标定流上注入已知 \(R_{SB}\)，再恢复。
-
-**D5-A**（外参误差 °）：
-
-| | 均值 ° | 中位 ° |
-|--|--------|--------|
-| **整体** | **25.09** | **19.83** |
+**D5-A**（外参误差 °）：整体 **25.09**（中位 19.83）。
 
 | Slot | 均值 ° | 中位 ° |
 |------|--------|--------|
@@ -242,23 +232,15 @@ python experiments/week2_rot_ext/eval_downstream_week1.py --dual
 | LP | 25.80 | 17.99 |
 | RW | 26.91 | 23.57 |
 
-**D5-B**（校准后 ori vs 干净参考 °）：
+**D5-B**（校准后 ori °）：None **43.01** → Learned **25.09** → Oracle ~0.03。
 
-| 设定 | 均值 ° | 中位 ° |
-|------|--------|--------|
-| None | **43.01** | 44.06 |
-| Learned | **25.09** | 19.83 |
-| Oracle | ~0.03 | ~0.03 |
+**要点：** None ≫ Learned ≫ Oracle；合成→真机域差约 **+12°**（13→25）；真机上四槽差距缩小。
 
-**分析：**
+#### A3. D6：校准后接 Week1（`eval_downstream_week1.py`）
 
-- 满足 **None ≫ Learned ≫ Oracle**；A 与 B-Learned 数值几乎相同（常数外参残差会原样反映到 ori 误差上），协议自洽。  
-- **域间隙：** 合成 13.00° → 真机 25.09°（约 **+12°**）。真机噪声与动态分布与 AMASS 训练仍有差距，但相对乱戴 43° 仍去掉约四成外参误差。  
-- 真机上四槽差距缩小（约 23–27°），合成上的「口袋优势」在 IMUPoser inject 上不那么明显。
+同一命令含 AMASS + IMUPoser；单设备对表/机各跑一次 Week2（`single_device_x2`）。
 
-### 3. D6-A：校准后接 Week1（`eval_downstream_week1.py`）
-
-在 AMASS 上对表+机分别注入 \(R_{SB}\)，None / Learned / Oracle 校准后喂冻结的 Week1 分类器（30 序列、3668 窗、四种佩戴组合）。
+**AMASS**（30 序列、3668 窗）：
 
 | 设定 | Watch Acc | Phone Acc | **Joint Acc** |
 |------|-----------|-----------|---------------|
@@ -266,25 +248,131 @@ python experiments/week2_rot_ext/eval_downstream_week1.py --dual
 | **Learned** | 0.956 | 0.914 | **0.883** |
 | Oracle | 0.979 | 0.953 | **0.938** |
 
-**分析：**
+**IMUPoser**（40 序列、5920 窗；inject 协议同 D5）：
 
-- 乱戴会明显伤害位置分类（Joint 掉到 0.60，手机尤甚）。  
-- Week2 校准后 Joint **回升到 0.88**，接近 Oracle 0.94（差约 5.5pt，与合成仍有 ~13° 外参残差相符）。  
-- 满足 **none ≪ learned ≤ oracle**，两周叙事闭环成立：Week1 假设朝向已知；Week2 在位置已知下估外参，能把乱戴下的位置分类大部分救回来。
+| 设定 | Watch Acc | Phone Acc | **Joint Acc** |
+|------|-----------|-----------|---------------|
+| None | 0.790 | 0.635 | **0.505** |
+| **Learned** | 0.920 | 0.719 | **0.664** |
+| Oracle | 0.939 | 0.725 | **0.682** |
 
-### 4. 总评与后续
+**要点：** 合成域 Joint 0.60→0.88→0.94，闭环清晰。真机域仍满足 none ≪ learned ≤ oracle，但 Oracle 上限仅 ~0.68——即使用完美外参，Week1 在真机上仍有明显域差；手机侧是主要短板。
 
-| 检查项 | 是否达成 |
-|--------|----------|
-| AMASS：Learned ≪ None，接近可用 | **是**（13° vs 43°） |
-| D5：真机 inject 仍有增益 | **是**（25° vs 43°；有 ~12° 域差） |
-| D6：Joint Acc 回升 | **是**（0.60 → 0.88 → 0.94） |
-| 训练无 NaN | **是**（chordal + clip） |
+---
+
+### B. 双设备联训（`RotExtrinsicDualNet`，一次估表+机）
+
+#### B0. 训练稳定性
+
+| 项 | 结果 |
+|----|------|
+| 损失 | chordal(watch)+chordal(phone)+0.1×6D；同 lr / clip |
+| 全程 | **40 epoch 无 NaN，`skipped=0`** |
+| 最佳 | epoch 37，val mean **12.65°**（watch 14.45° / phone 10.86°） |
+
+#### B1. AMASS 合成评估（`eval_dual.py --split val`）
+
+全量 79,636 窗（四组合各 19,909）。
+
+| | 均值 ° | 中位 ° |
+|--|--------|--------|
+| watch | **14.45** | 11.45 |
+| phone | **10.86** | 8.09 |
+| **mean** | **12.65** | — |
+
+None ≈ 42.9°（表/机）；Oracle 0°。四组合 mean 约 12.45–12.88°，带 RW 略差。
+
+**要点：** mean 略优于单设备 13.00°；腕侧改善（相对单设备腕 ~16°→14.45°），口袋略逊（~10°→10.86°）；「腕难袋易」仍在，差距收窄。
+
+#### B2. D5：IMUPoser 真机 inject（`eval_imuposer_d5_dual.py`）
+
+40 序列 × 四组合；表+机同时注入、双头一次恢复。
+
+**D5-A**（°）：
+
+| | 均值 ° | 中位 ° |
+|--|--------|--------|
+| watch | 21.55 | 19.01 |
+| phone | 21.36 | 16.82 |
+| **mean** | **21.46** | **18.57** |
+
+分槽：LW 19.66 / LP 20.57 / RP 22.15 / RW 23.44。  
+组合 mean：LW+LP 20.02（最好）… RW+RP 22.88（最差）。
+
+**D5-B** pooled：None **43.08** → Learned **21.46** → Oracle ~0.03。
+
+**要点：** 真机 mean **优于单设备 D5 约 3.6°**（21.46 vs 25.09）；相对合成 12.65° 域差约 **+8.8°**（小于单设备的 +12°）。
+
+#### B3. D6：校准后接 Week1（`eval_downstream_week1.py --dual`）
+
+**AMASS：**
+
+| 设定 | Watch Acc | Phone Acc | **Joint Acc** |
+|------|-----------|-----------|---------------|
+| None | 0.851 | 0.694 | **0.596** |
+| **Learned** | 0.957 | 0.897 | **0.869** |
+| Oracle | 0.979 | 0.953 | **0.938** |
+
+**IMUPoser：**
+
+| 设定 | Watch Acc | Phone Acc | **Joint Acc** |
+|------|-----------|-----------|---------------|
+| None | 0.790 | 0.635 | **0.505** |
+| **Learned** | 0.937 | 0.729 | **0.682** |
+| Oracle | 0.939 | 0.725 | **0.682** |
+
+**要点：** 合成 Joint 0.60→0.87→0.94（相对单设备 Learned 低 1.4pt，主因 phone）。真机上 Learned≈Oracle（0.682），联训 Joint **略好于**单设备 0.664。
+
+---
+
+### C. 单设备 vs 双设备对照
+
+| 评测 | 单设备 | 双设备联训 | 谁更好 |
+|------|--------|------------|--------|
+| AMASS 外参 mean ° | 13.00 | **12.65** | 联训 |
+| D5 真机外参 mean ° | 25.09 | **21.46** | 联训（−3.6°） |
+| 合成→真机域差 ° | +12.1 | **+8.8** | 联训更小 |
+| D6 AMASS Joint（Learned） | **0.883** | 0.869 | 单设备×2（+1.4pt） |
+| D6 IMUPoser Joint（Learned） | 0.664 | **0.682** | 联训（+1.8pt） |
+| D6 IMUPoser Oracle 上限 | 0.682 | 0.682 | 同（Week1 真机上限） |
+
+---
+
+### D. 综合分析
+
+1. **外参主任务成立（两条线都成立）**  
+   合成 Learned ≪ None（~13° / ~12.7° vs ~43°）；真机 inject 仍有增益且协议自洽（A≈B-Learned，Oracle≈0）。
+
+2. **联训在「估外参」上整体更强，尤其真机**  
+   合成略优、真机明显优；共享编码器可能帮助两侧互相提供运动上下文，缩小 sim-to-real 间隙。腕侧是合成上的主要受益者。
+
+3. **下游 D6 并不单调跟随外参 mean**  
+   合成域单设备×2 Joint 更高：联训损失优化的是双侧 chordal，不是 Week1 Joint；且联训 phone 外参略差，而 Week1 对手机更敏感。  
+   真机域则联训 Joint 反超，并顶到 Oracle——此时瓶颈已从 Week2 外参转到 **Week1 真机分类上限**。
+
+4. **真机下游的天花板不在外参**  
+   IMUPoser 上即使 Oracle 校准，Joint 仅 ~0.68（AMASS Oracle 0.94）。说明录制分布 / 特征与 Week1 训练域仍有差距；继续抠 Week2 角度对真机 Joint 的边际收益有限，除非同时做 Week1 真机适配。
+
+5. **槽位规律**  
+   合成：袋易腕难。真机 D5：四槽接近，RW 仍偏难。D6：phone_acc 始终低于 watch_acc。
+
+---
+
+### E. 结论与检查清单
+
+| 检查项 | 单设备 | 双设备联训 |
+|--------|--------|------------|
+| 训练无 NaN | **是** | **是** |
+| AMASS：Learned ≪ None | **是**（13° vs 43°） | **是**（12.7° vs 43°） |
+| D5：真机 inject 有增益 | **是**（25° vs 43°） | **是**（21.5° vs 43°） |
+| D6 AMASS：Joint 回升 | **是**（0.60→0.88→0.94） | **是**（0.60→0.87→0.94） |
+| D6 IMUPoser：Joint 回升 | **是**（0.50→0.66→0.68） | **是**（0.50→0.68→0.68） |
 
 **可写进汇报的结论：**
 
-1. 位置已知时，BiLSTM 可从短窗 IMU 估计静态 \(R_{SB}\)（合成约 13° / 中位 9.4°）。  
-2. 真机 inject 可迁移但有 sim-to-real 间隙（约 25°）。  
-3. 外参校准对 Week1 位置分类有明确下游收益。
+1. 位置已知时，BiLSTM 可从短窗 IMU 估计静态 \(R_{SB}\)：合成约 **13°**（单）/ **12.7°**（联训）；真机 inject 约 **25°** / **21.5°**。  
+2. **双设备联训**在外参精度与真机 D5 上优于单设备，并缩小域差；合成 D6 Joint 略逊 1.4pt，真机 D6 则略优并接近 Oracle。  
+3. 外参校准对 Week1 有明确收益；真机下游上限受 Week1 域差约束（Oracle Joint ~0.68），不全是 Week2 问题。  
+4. 部署取舍：要一次前向、偏真机外参 → 联训；要抠合成 Joint → 单设备×2 仍可作对照主表。
 
-**可选下一步（非本周必做）：** 真机 inject 微调或更强增广以缩域差；腕部分头/加长窗；集成时接姿态主网（原 D6-B）。
+**可选下一步（非本周必做）：** 联训 phone 损失加权以抬合成 D6；真机微调 / 增广缩 D5 域差；Week1 真机适配抬 Oracle 上限；腕部分头或加长窗；集成接姿态主网（原 D6-B）。
