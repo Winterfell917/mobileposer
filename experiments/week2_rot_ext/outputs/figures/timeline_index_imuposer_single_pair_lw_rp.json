@@ -1,0 +1,18 @@
+{
+  "tag": "single_pair_lw_rp",
+  "dual": false,
+  "pair_single_x2": true,
+  "n_scored": 5,
+  "good_th_deg": 25.356266021728516,
+  "bad_th_deg": 38.68938446044922,
+  "offset_seed": 51,
+  "items": [
+    {
+      "seq_id": 0,
+      "quality": "good",
+      "meta": "P1/startClap",
+      "mean_learned_deg": 20.61758804321289,
+      "figure": "timeline_seq000_good_imuposer_single_pair_lw_rp.png"
+    }
+  ]
+}

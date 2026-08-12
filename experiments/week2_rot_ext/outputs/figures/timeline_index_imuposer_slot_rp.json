@@ -1,0 +1,17 @@
+{
+  "tag": "slot_rp",
+  "dual": false,
+  "n_scored": 5,
+  "good_th_deg": 19.171098709106445,
+  "bad_th_deg": 42.32170486450195,
+  "offset_seed": 49,
+  "items": [
+    {
+      "seq_id": 0,
+      "quality": "good",
+      "meta": "P1/startClap",
+      "mean_learned_deg": 16.018404006958008,
+      "figure": "timeline_seq000_good_imuposer_slot_rp.png"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "tag": "dual_lw_rp",
+  "dual": true,
+  "n_scored": 8,
+  "good_th_deg": 18.168354034423828,
+  "bad_th_deg": 24.96716547012329,
+  "offset_seed": 51,
+  "items": [
+    {
+      "seq_id": 0,
+      "quality": "mid",
+      "meta": "P1/startClap",
+      "mean_learned_deg": 18.296499252319336,
+      "figure": "timeline_seq000_mid_imuposer_dual_lw_rp.png"
+    }
+  ]
+}

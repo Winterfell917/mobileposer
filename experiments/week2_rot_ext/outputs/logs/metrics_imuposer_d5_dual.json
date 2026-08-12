@@ -1,0 +1,131 @@
+{
+  "protocol": "Inject independent R_SB onto watch+phone IMUPoser streams; dual model recovers both; A=extrinsic error; B=ori error after calib vs clean reference.",
+  "week2_mode": "dual_joint",
+  "n_sequences_used": 40,
+  "offset_range_deg": 45.0,
+  "combos": [
+    "LW+LP",
+    "LW+RP",
+    "RW+LP",
+    "RW+RP"
+  ],
+  "D5_A_rsb_error_deg": {
+    "watch": {
+      "n": 5920,
+      "mean": 21.548574447631836,
+      "median": 19.00790023803711
+    },
+    "phone": {
+      "n": 5920,
+      "mean": 21.361923217773438,
+      "median": 16.82066535949707
+    },
+    "mean": {
+      "n": 5920,
+      "mean": 21.45524787902832,
+      "median": 18.573951721191406
+    }
+  },
+  "D5_A_per_slot": {
+    "LW": {
+      "n": 2960,
+      "mean": 19.65639305114746,
+      "median": 16.7033634185791
+    },
+    "RW": {
+      "n": 2960,
+      "mean": 23.440757751464844,
+      "median": 21.230083465576172
+    },
+    "LP": {
+      "n": 2960,
+      "mean": 20.571125030517578,
+      "median": 15.65479850769043
+    },
+    "RP": {
+      "n": 2960,
+      "mean": 22.15272331237793,
+      "median": 18.150976181030273
+    }
+  },
+  "D5_A_per_combo": {
+    "LW+LP": {
+      "n": 1480,
+      "watch_mean": 19.188344955444336,
+      "phone_mean": 20.85931396484375,
+      "mean": 20.023828506469727
+    },
+    "LW+RP": {
+      "n": 1480,
+      "watch_mean": 20.124441146850586,
+      "phone_mean": 21.672903060913086,
+      "mean": 20.898672103881836
+    },
+    "RW+LP": {
+      "n": 1480,
+      "watch_mean": 23.745840072631836,
+      "phone_mean": 20.282930374145508,
+      "mean": 22.014385223388672
+    },
+    "RW+RP": {
+      "n": 1480,
+      "watch_mean": 23.13567543029785,
+      "phone_mean": 22.632543563842773,
+      "mean": 22.884111404418945
+    }
+  },
+  "D5_B_ori_proxy_deg": {
+    "none": {
+      "watch": {
+        "n": 5920,
+        "mean": 43.15467834472656,
+        "median": 44.061744689941406
+      },
+      "phone": {
+        "n": 5920,
+        "mean": 42.9984245300293,
+        "median": 44.1897087097168
+      },
+      "pooled": {
+        "n": 11840,
+        "mean": 43.0765495300293,
+        "median": 44.116024017333984
+      }
+    },
+    "learned": {
+      "watch": {
+        "n": 5920,
+        "mean": 21.548551559448242,
+        "median": 19.00788688659668
+      },
+      "phone": {
+        "n": 5920,
+        "mean": 21.36184310913086,
+        "median": 16.820642471313477
+      },
+      "pooled": {
+        "n": 11840,
+        "mean": 21.455196380615234,
+        "median": 18.028398513793945
+      }
+    },
+    "oracle": {
+      "watch": {
+        "n": 5920,
+        "mean": 0.02936720661818981,
+        "median": 0.028620248660445213
+      },
+      "phone": {
+        "n": 5920,
+        "mean": 0.02876627817749977,
+        "median": 0.02797645516693592
+      },
+      "pooled": {
+        "n": 11840,
+        "mean": 0.029066743329167366,
+        "median": 0.02810521423816681
+      }
+    }
+  },
+  "note": "Native R_SB is not in imuposer_full.pt; inject-GT is the practical dual D5-A. Combos match eval.downstream_combos (same as D6)."
+}

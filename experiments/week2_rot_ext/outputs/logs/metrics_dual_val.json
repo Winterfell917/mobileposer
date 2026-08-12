@@ -1,0 +1,35 @@
+{
+  "n": 79636,
+  "watch_rot_err_deg_mean": 14.4467134475708,
+  "watch_rot_err_deg_median": 11.45235824584961,
+  "phone_rot_err_deg_mean": 10.861678123474121,
+  "phone_rot_err_deg_median": 8.091191291809082,
+  "mean_rot_err_deg": 12.654195785522461,
+  "contrast": {
+    "none_watch_deg": 42.895832736031466,
+    "none_phone_deg": 42.90249993549753,
+    "oracle_deg": 0.0
+  },
+  "per_combo": {
+    "LW+LP": {
+      "n": 19909,
+      "watch_mean": 14.07444953918457,
+      "phone_mean": 10.821194648742676
+    },
+    "LW+RP": {
+      "n": 19909,
+      "watch_mean": 14.196867942810059,
+      "phone_mean": 10.754376411437988
+    },
+    "RW+LP": {
+      "n": 19909,
+      "watch_mean": 14.758831977844238,
+      "phone_mean": 11.004260063171387
+    },
+    "RW+RP": {
+      "n": 19909,
+      "watch_mean": 14.756707191467285,
+      "phone_mean": 10.866881370544434
+    }
+  }
+}

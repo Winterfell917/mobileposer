@@ -1,0 +1,284 @@
+{
+  "title": "Week2 Rot Extrinsic — consolidated quantitative summary",
+  "sources": {
+    "single_amass": "metrics_val.json",
+    "dual_amass": "metrics_dual_val.json",
+    "single_d5": "metrics_imuposer_d5.json",
+    "dual_d5": "metrics_imuposer_d5_dual.json",
+    "single_d6": "metrics_downstream_week1.json",
+    "dual_d6": "metrics_downstream_week1_dual.json"
+  },
+  "main_table": [
+    {
+      "track": "single",
+      "eval": "AMASS val (R_SB °)",
+      "none": 42.95,
+      "learned": 13.0,
+      "oracle": 0.0,
+      "note": "geo(R_hat, R_SB); contrast.none is subset"
+    },
+    {
+      "track": "dual",
+      "eval": "AMASS val (R_SB °)",
+      "none": 42.9,
+      "learned": 12.65,
+      "oracle": 0.0,
+      "note": "mean of watch/phone"
+    },
+    {
+      "track": "single",
+      "eval": "D5 IMUPoser (R_SB °)",
+      "none": 43.01,
+      "learned": 25.09,
+      "oracle": 0.03,
+      "note": "A=learned extrinsic; none/oracle from B ori proxy"
+    },
+    {
+      "track": "dual",
+      "eval": "D5 IMUPoser (R_SB °)",
+      "none": 43.08,
+      "learned": 21.46,
+      "oracle": 0.03,
+      "note": "mean of watch/phone"
+    },
+    {
+      "track": "single",
+      "eval": "D6 AMASS Joint Acc",
+      "none": 0.596,
+      "learned": 0.883,
+      "oracle": 0.938,
+      "note": "Week1 after calib"
+    },
+    {
+      "track": "single",
+      "eval": "D6 IMUPoser Joint Acc",
+      "none": 0.505,
+      "learned": 0.664,
+      "oracle": 0.682,
+      "note": "Week1 after calib"
+    },
+    {
+      "track": "dual",
+      "eval": "D6 AMASS Joint Acc",
+      "none": 0.596,
+      "learned": 0.869,
+      "oracle": 0.938,
+      "note": "Week1 after dual calib"
+    },
+    {
+      "track": "dual",
+      "eval": "D6 IMUPoser Joint Acc",
+      "none": 0.505,
+      "learned": 0.682,
+      "oracle": 0.682,
+      "note": "Week1 after dual calib"
+    }
+  ],
+  "single_vs_dual": [
+    {
+      "eval": "AMASS val (R_SB °)",
+      "single_learned": 13.0,
+      "dual_learned": 12.65,
+      "winner": "dual",
+      "lower_better": true
+    },
+    {
+      "eval": "D5 IMUPoser (R_SB °)",
+      "single_learned": 25.09,
+      "dual_learned": 21.46,
+      "winner": "dual",
+      "lower_better": true
+    },
+    {
+      "eval": "D6 AMASS Joint Acc",
+      "single_learned": 0.883,
+      "dual_learned": 0.869,
+      "winner": "single",
+      "lower_better": false
+    },
+    {
+      "eval": "D6 IMUPoser Joint Acc",
+      "single_learned": 0.664,
+      "dual_learned": 0.682,
+      "winner": "dual",
+      "lower_better": false
+    }
+  ],
+  "details": {
+    "single_amass_per_slot": {
+      "LW": {
+        "n": 19909,
+        "mean": 15.67769718170166,
+        "median": 11.988654136657715
+      },
+      "RW": {
+        "n": 19909,
+        "mean": 16.280719757080078,
+        "median": 12.503896713256836
+      },
+      "LP": {
+        "n": 19909,
+        "mean": 10.0532865524292,
+        "median": 7.251658916473389
+      },
+      "RP": {
+        "n": 19909,
+        "mean": 10.001006126403809,
+        "median": 7.2197184562683105
+      }
+    },
+    "dual_amass": {
+      "watch_mean": 14.4467134475708,
+      "phone_mean": 10.861678123474121,
+      "mean": 12.654195785522461
+    },
+    "single_d5_per_slot": {
+      "LW": {
+        "n": 1480,
+        "mean": 23.389013290405273,
+        "median": 18.508466720581055
+      },
+      "RW": {
+        "n": 1480,
+        "mean": 26.914243698120117,
+        "median": 23.572223663330078
+      },
+      "LP": {
+        "n": 1480,
+        "mean": 25.80485725402832,
+        "median": 17.98736000061035
+      },
+      "RP": {
+        "n": 1480,
+        "mean": 24.247936248779297,
+        "median": 18.65435218811035
+      }
+    },
+    "dual_d5_per_slot": {
+      "LW": {
+        "n": 2960,
+        "mean": 19.65639305114746,
+        "median": 16.7033634185791
+      },
+      "RW": {
+        "n": 2960,
+        "mean": 23.440757751464844,
+        "median": 21.230083465576172
+      },
+      "LP": {
+        "n": 2960,
+        "mean": 20.571125030517578,
+        "median": 15.65479850769043
+      },
+      "RP": {
+        "n": 2960,
+        "mean": 22.15272331237793,
+        "median": 18.150976181030273
+      }
+    },
+    "single_d6": {
+      "amass": {
+        "source": "AMASS bone-aligned IMU + injected R_SB",
+        "n_sequences_used": 30,
+        "stride": 15,
+        "results": {
+          "none": {
+            "n": 3668,
+            "watch_acc": 0.8508724100327154,
+            "phone_acc": 0.6938386041439476,
+            "joint_acc": 0.5959651035986914
+          },
+          "learned": {
+            "n": 3668,
+            "watch_acc": 0.9558342420937841,
+            "phone_acc": 0.913576881134133,
+            "joint_acc": 0.8830425299890948
+          },
+          "oracle": {
+            "n": 3668,
+            "watch_acc": 0.9792802617230099,
+            "phone_acc": 0.9531079607415486,
+            "joint_acc": 0.9375681570338059
+          }
+        }
+      },
+      "imuposer": {
+        "source": "IMUPoser recorded streams as clean reference; inject known R_SB (same as D5); then Week1",
+        "n_sequences_used": 40,
+        "stride": 15,
+        "results": {
+          "none": {
+            "n": 5920,
+            "watch_acc": 0.7898648648648648,
+            "phone_acc": 0.6353040540540541,
+            "joint_acc": 0.5045608108108108
+          },
+          "learned": {
+            "n": 5920,
+            "watch_acc": 0.9199324324324324,
+            "phone_acc": 0.7190878378378378,
+            "joint_acc": 0.6635135135135135
+          },
+          "oracle": {
+            "n": 5920,
+            "watch_acc": 0.9390202702702702,
+            "phone_acc": 0.7248310810810811,
+            "joint_acc": 0.6817567567567567
+          }
+        }
+      }
+    },
+    "dual_d6": {
+      "amass": {
+        "source": "AMASS bone-aligned IMU + injected R_SB",
+        "n_sequences_used": 30,
+        "stride": 15,
+        "results": {
+          "none": {
+            "n": 3668,
+            "watch_acc": 0.8508724100327154,
+            "phone_acc": 0.6938386041439476,
+            "joint_acc": 0.5959651035986914
+          },
+          "learned": {
+            "n": 3668,
+            "watch_acc": 0.9574700109051254,
+            "phone_acc": 0.8966739367502726,
+            "joint_acc": 0.8694111232279171
+          },
+          "oracle": {
+            "n": 3668,
+            "watch_acc": 0.9792802617230099,
+            "phone_acc": 0.9531079607415486,
+            "joint_acc": 0.9375681570338059
+          }
+        }
+      },
+      "imuposer": {
+        "source": "IMUPoser recorded streams as clean reference; inject known R_SB (same as D5); then Week1",
+        "n_sequences_used": 40,
+        "stride": 15,
+        "results": {
+          "none": {
+            "n": 5920,
+            "watch_acc": 0.7898648648648648,
+            "phone_acc": 0.6353040540540541,
+            "joint_acc": 0.5045608108108108
+          },
+          "learned": {
+            "n": 5920,
+            "watch_acc": 0.9366554054054054,
+            "phone_acc": 0.7287162162162162,
+            "joint_acc": 0.6822635135135136
+          },
+          "oracle": {
+            "n": 5920,
+            "watch_acc": 0.9390202702702702,
+            "phone_acc": 0.7248310810810811,
+            "joint_acc": 0.6817567567567567
+          }
+        }
+      }
+    }
+  }
+}

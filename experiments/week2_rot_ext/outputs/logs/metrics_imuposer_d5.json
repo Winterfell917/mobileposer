@@ -1,0 +1,50 @@
+{
+  "protocol": "Inject known R_SB onto calibrated IMUPoser streams; A=extrinsic error; B=ori error after calib vs clean reference.",
+  "n_sequences_used": 40,
+  "offset_range_deg": 45.0,
+  "D5_A_rsb_error_deg": {
+    "n": 5920,
+    "mean": 25.089012145996094,
+    "median": 19.829275131225586
+  },
+  "D5_A_per_slot": {
+    "LW": {
+      "n": 1480,
+      "mean": 23.389013290405273,
+      "median": 18.508466720581055
+    },
+    "RW": {
+      "n": 1480,
+      "mean": 26.914243698120117,
+      "median": 23.572223663330078
+    },
+    "LP": {
+      "n": 1480,
+      "mean": 25.80485725402832,
+      "median": 17.98736000061035
+    },
+    "RP": {
+      "n": 1480,
+      "mean": 24.247936248779297,
+      "median": 18.65435218811035
+    }
+  },
+  "D5_B_ori_proxy_deg": {
+    "none": {
+      "n": 5920,
+      "mean": 43.01309585571289,
+      "median": 44.05674362182617
+    },
+    "learned": {
+      "n": 5920,
+      "mean": 25.088964462280273,
+      "median": 19.829240798950195
+    },
+    "oracle": {
+      "n": 5920,
+      "mean": 0.029028836637735367,
+      "median": 0.02810521423816681
+    }
+  },
+  "note": "Native R_SB is not in imuposer_full.pt; inject-GT is the practical D5-A. D5-B uses the same windows as an ori-alignment proxy."
+}

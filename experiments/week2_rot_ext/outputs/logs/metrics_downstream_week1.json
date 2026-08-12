@@ -1,0 +1,58 @@
+{
+  "protocol": "Inject independent watch/phone R_SB \u2192 calib \u2192 Week1 PosClassifier (AMASS synthetic + IMUPoser real streams as clean reference).",
+  "week2_mode": "single_device_x2",
+  "offset_range_deg": 45.0,
+  "expectation": "none << learned <= oracle (joint_acc)",
+  "datasets": {
+    "amass": {
+      "source": "AMASS bone-aligned IMU + injected R_SB",
+      "n_sequences_used": 30,
+      "stride": 15,
+      "results": {
+        "none": {
+          "n": 3668,
+          "watch_acc": 0.8508724100327154,
+          "phone_acc": 0.6938386041439476,
+          "joint_acc": 0.5959651035986914
+        },
+        "learned": {
+          "n": 3668,
+          "watch_acc": 0.9558342420937841,
+          "phone_acc": 0.913576881134133,
+          "joint_acc": 0.8830425299890948
+        },
+        "oracle": {
+          "n": 3668,
+          "watch_acc": 0.9792802617230099,
+          "phone_acc": 0.9531079607415486,
+          "joint_acc": 0.9375681570338059
+        }
+      }
+    },
+    "imuposer": {
+      "source": "IMUPoser recorded streams as clean reference; inject known R_SB (same as D5); then Week1",
+      "n_sequences_used": 40,
+      "stride": 15,
+      "results": {
+        "none": {
+          "n": 5920,
+          "watch_acc": 0.7898648648648648,
+          "phone_acc": 0.6353040540540541,
+          "joint_acc": 0.5045608108108108
+        },
+        "learned": {
+          "n": 5920,
+          "watch_acc": 0.9199324324324324,
+          "phone_acc": 0.7190878378378378,
+          "joint_acc": 0.6635135135135135
+        },
+        "oracle": {
+          "n": 5920,
+          "watch_acc": 0.9390202702702702,
+          "phone_acc": 0.7248310810810811,
+          "joint_acc": 0.6817567567567567
+        }
+      }
+    }
+  }
+}
