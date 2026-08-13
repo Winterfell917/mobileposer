@@ -83,3 +83,11 @@ eval:
     - [0, 1]  # LW+RP
     - [1, 0]  # RW+LP
     - [1, 1]  # RW+RP
+  # D7: Week2 calib → MobilePoser pose; 4 combos + Head (official weights trained on lw_rp_h)
+  mobileposer_checkpoint: checkpoints/weights.pth
+  pose_combos:
+    - [0, 0]  # LW+LP → lw_lp_h
+    - [0, 1]  # LW+RP → lw_rp_h
+    - [1, 0]  # RW+LP → rw_lp_h
+    - [1, 1]  # RW+RP → rw_rp_h
+  pose_max_seqs: 12

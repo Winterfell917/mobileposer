@@ -164,6 +164,29 @@ python experiments/week2_rot_ext/eval_downstream_week1.py --dual
 
 产物：`amass_dual_{train,val}.pt`、`norm_stats_dual.pt`、`best_rot_err_dual.pt`、`metrics_dual_val.json`、`metrics_imuposer_d5_dual.json`、`metrics_downstream_week1_dual.json`（含 amass / imuposer）。
 
+### 7. 接 MobilePoser 姿态（\(R_{MB}, a_M\)）
+
+校准公式（与本周协议一致）：
+
+\[
+R_{MB} = R_{\mathrm{obs}}\,\hat{R}_{SB}^{\top},\quad a_M = a_{\mathrm{obs}}
+\]
+
+默认评测 **四组合** `(LW|RW)×(LP|RP)`，每组再加干净 Head，打包为 `[watch, phone, Head]`。Week2 估表/机外参；Head 不注入。对照 None / Learned / Oracle。
+
+注意：官方 `weights.pth` 训练时 combo mask 是 `lw_rp_h`；另外三组是域偏移（通道仍合法，未用槽填零）。
+
+需先把官方预训练权重放到 `checkpoints/weights.pth`。
+
+```bash
+python experiments/week2_rot_ext/eval_pose_downstream.py \
+  --config experiments/week2_rot_ext/configs/default.yaml
+
+python experiments/week2_rot_ext/eval_pose_downstream.py --dual
+```
+
+日志：`outputs/logs/metrics_pose_downstream.json`（`--dual` 则为 `*_dual.json`）。
+
 ## D5 说明（为何 A、B 能一起做）
 
 | | 内容 |
@@ -176,16 +199,16 @@ python experiments/week2_rot_ext/eval_downstream_week1.py --dual
 
 ## D7
 
-本周**不做**显式 T/N-pose 基线；对照为 None / Oracle / Learned。
+显式 T/N-pose 基线仍不做。姿态下游改为：Week2 校准后的 \(R_{MB}, a_M\) 接 MobilePoser（见上文第 7 步）。
 
 ---
 
 ## 实验结果
 
-> 记录日期：2026-08-13（协议改为**只拧朝向、加速度不变**后全量重训重评）  
+> 记录日期：2026-08-13（协议改为**只拧朝向、加速度不变**后全量重训重评；当晚补姿态下游）  
 > 设定：`offset_range=45°`，窗长 90，AMASS 子集 CMU / ACCAD / BioMotionLab_NTroje  
-> 权重：单设备 `best_rot_err.pt`（epoch 37）；双设备 `best_rot_err_dual.pt`（epoch 38）  
-> 日志：`train_log.csv` / `train_log_dual.csv`、`metrics_val.json` / `metrics_dual_val.json`、`metrics_imuposer_d5.json` / `metrics_imuposer_d5_dual.json`、`metrics_downstream_week1.json` / `metrics_downstream_week1_dual.json`  
+> 权重：单设备 `best_rot_err.pt`（epoch 37）；双设备 `best_rot_err_dual.pt`（epoch 38）；姿态 `checkpoints/weights.pth`  
+> 日志：`train_log.csv` / `train_log_dual.csv`、`metrics_val.json` / `metrics_dual_val.json`、`metrics_imuposer_d5.json` / `metrics_imuposer_d5_dual.json`、`metrics_downstream_week1.json` / `metrics_downstream_week1_dual.json`、`metrics_pose_downstream.json` / `metrics_pose_downstream_dual.json`  
 > **综合汇总：** `python experiments/week2_rot_ext/summarize_metrics.py` → `outputs/logs/metrics_summary.json`
 
 相对上一轮（acc 随 \(R_{SB}\) 一起旋转）：合成外参约 13° → **15°**，真机约 21–25° → **26–28°**。D6 的 None 也升高（acc 不再被拧乱，未校准时分类更容易）。
@@ -204,8 +227,12 @@ python experiments/week2_rot_ext/eval_downstream_week1.py --dual
 | 双设备 | D6 AMASS Joint | 0.637 | **0.875** | 0.938 |
 | 单设备 | D6 IMUPoser Joint | 0.548 | **0.682** | 0.682 |
 | 双设备 | D6 IMUPoser Joint | 0.548 | **0.694** | 0.682 |
+| 单设备 | 姿态 AMASS Pos. cm | 15.44 | **13.55** | 13.12 |
+| 双设备 | 姿态 AMASS Pos. cm | 15.44 | **13.53** | 13.12 |
+| 单设备 | 姿态 IMUPoser Pos. cm | 11.97 | **6.90** | 5.46 |
+| 双设备 | 姿态 IMUPoser Pos. cm | 11.97 | **6.87** | 5.46 |
 
-**一眼结论：** 外参任务两条线仍成立（None ≫ Learned ≫ Oracle）；合成外参单设备略优，真机外参与真机 D6 联训更好；合成 D6 Joint 仍略偏向单设备×2。下文 A/B 为分项明细。
+**一眼结论：** 外参任务两条线仍成立（None ≫ Learned ≫ Oracle）；合成外参单设备略优，真机外参与真机 D6 联训更好；合成 D6 Joint 仍略偏向单设备×2。姿态下游（四组合平均）Learned 夹在 None 与 Oracle 之间，**真机位置误差约 12→7 cm**，收益明显大于合成。下文 A/B 为分项明细。
 
 ---
 
@@ -357,6 +384,34 @@ None ≈ 42.9°（表/机）；Oracle 0°。四组合 mean 约 14.93–15.39°�
 | D6 AMASS Joint（Learned） | **0.890** | 0.875 | 单设备×2（+1.5pt） |
 | D6 IMUPoser Joint（Learned） | 0.682 | **0.694** | 联训（+1.2pt） |
 | D6 IMUPoser Oracle 上限 | 0.682 | 0.682 | 同（Week1 真机上限） |
+| 姿态 AMASS Pos. cm（Learned） | 13.55 | **13.53** | 几乎打平 |
+| 姿态 IMUPoser Pos. cm（Learned） | 6.90 | **6.87** | 几乎打平 |
+
+---
+
+### F. 姿态下游（`eval_pose_downstream.py`）
+
+12 序列 × 四组合 `(LW|RW)×(LP|RP)` + 干净 Head；官方 `weights.pth`。单位：位置误差 cm / 角度误差 °（越低越好）。
+
+**四组合平均（pooled）：**
+
+| Track | 数据 | None pos | **Learned pos** | Oracle pos | None ang | **Learned ang** | Oracle ang |
+|-------|------|--------:|----------------:|-----------:|---------:|----------------:|-----------:|
+| 单设备 | AMASS | 15.44 | **13.55** | 13.12 | 31.15 | **26.69** | 25.78 |
+| 双设备 | AMASS | 15.44 | **13.53** | 13.12 | 31.15 | **26.80** | 25.78 |
+| 单设备 | IMUPoser | 11.97 | **6.90** | 5.46 | 22.58 | **15.32** | 12.20 |
+| 双设备 | IMUPoser | 11.97 | **6.87** | 5.46 | 22.58 | **15.02** | 12.20 |
+
+**单设备分组合位置 cm：**
+
+| combo | AMASS None / Learned / Oracle | IMUPoser None / Learned / Oracle |
+|-------|-------------------------------|----------------------------------|
+| lw_lp_h | 16.69 / **13.56** / 13.05 | 11.34 / **6.94** / 5.42 |
+| lw_rp_h（官方训配） | 14.54 / **13.64** / 13.25 | 11.62 / **6.90** / 5.33 |
+| rw_lp_h | 15.21 / **13.44** / 13.09 | 13.75 / **6.40** / 5.55 |
+| rw_rp_h | 15.31 / **13.56** / 13.10 | 11.16 / **7.37** / 5.54 |
+
+**要点：** 校准后接 MobilePoser 闭环成立（None > Learned ≥ Oracle）。合成上 acc 未拧，None 本来就不差，只降约 2 cm；真机从 ~12 cm 降到 ~7 cm，接近 Oracle 5.5 cm。四组合接近；单/双几乎打平。`lw_rp_h` 与另外三组没有崩，但官方权重按该 combo 训练，解读时仍以 `lw_rp_h` 为主。
 
 ---
 
@@ -378,6 +433,9 @@ None ≈ 42.9°（表/机）；Oracle 0°。四组合 mean 约 14.93–15.39°�
 5. **槽位规律**  
    合成：袋易腕难（差距拉大）。真机 D5：RW 仍最差。D6：phone_acc 始终低于 watch_acc。None Joint 因 acc 未拧而高于旧协议。
 
+6. **接 MobilePoser 的姿态闭环成立**  
+   Learned 夹在 None 与 Oracle 之间。合成位置只降约 2 cm（acc 不变，None 本就不差）；真机 **12→7 cm**（Oracle 5.5 cm），角度 23°→15°。单/双几乎打平；四组合均可用，主表以官方 `lw_rp_h` 为准。
+
 ---
 
 ### E. 结论与检查清单
@@ -389,12 +447,15 @@ None ≈ 42.9°（表/机）；Oracle 0°。四组合 mean 约 14.93–15.39°�
 | D5：真机 inject 有增益 | **是**（27.9° vs 43°） | **是**（26.0° vs 43°） |
 | D6 AMASS：Joint 回升 | **是**（0.64→0.89→0.94） | **是**（0.64→0.87→0.94） |
 | D6 IMUPoser：Joint 回升 | **是**（0.55→0.68→0.68） | **是**（0.55→0.69→0.68） |
+| 姿态 AMASS：Pos. 回升 | **是**（15.4→13.6→13.1） | **是**（15.4→13.5→13.1） |
+| 姿态 IMUPoser：Pos. 回升 | **是**（12.0→6.9→5.5） | **是**（12.0→6.9→5.5） |
 
 **可写进汇报的结论：**
 
 1. 位置已知时，BiLSTM 可从短窗朝向估计静态 \(R_{SB}\)（加速度保持不变）：合成约 **15.0°**（单）/ **15.1°**（联训）；真机 inject 约 **27.9°** / **26.0°**。  
 2. **双设备联训**在真机 D5 与真机 D6 上优于单设备，并缩小域差；合成外参与合成 D6 Joint 略逊于单设备×2。  
-3. 外参校准对 Week1 有明确收益；真机下游上限受 Week1 域差约束（Oracle Joint ~0.68），不全是 Week2 问题。  
-4. 部署取舍：要一次前向、偏真机外参 → 联训；要抠合成 Joint → 单设备×2 仍可作对照主表。
+3. 外参校准对 Week1 有明确收益；真机位置分类上限受 Week1 域差约束（Oracle Joint ~0.68），不全是 Week2 问题。  
+4. 校准后的 \(R_{MB}, a_M\) 可直接接 MobilePoser：真机位置误差 **12→7 cm**（Oracle 5.5 cm）；单/双姿态几乎打平。  
+5. 部署取舍：要一次前向、偏真机外参 → 联训；要抠合成 Joint → 单设备×2 仍可作对照主表。
 
-**可选下一步（非本周必做）：** 联训 phone 损失加权以抬合成 D6；真机微调 / 增广缩 D5 域差；Week1 真机适配抬 Oracle 上限；腕部分头或加长窗；集成接姿态主网（原 D6-B）。
+**可选下一步：** 联训 phone 损失加权以抬合成 D6；真机微调 / 增广缩 D5 域差；Week1 真机适配抬分类上限；无 GT 级联（Pred 位 → 外参 → 姿态）。
