@@ -84,6 +84,12 @@ def main():
         type=str,
         default="experiments/week2_rot_ext/configs/default.yaml",
     )
+    parser.add_argument(
+        "--resume",
+        type=str,
+        default=None,
+        help="Resume from last_dual.pt (or a dual checkpoint). Appends train_log_dual.csv.",
+    )
     args = parser.parse_args()
     cfg = load_config(resolve_path(args.config))
     set_seed(cfg["experiment"]["seed"])
@@ -143,22 +149,40 @@ def main():
     best_path = ckpt_dir / "best_rot_err_dual.pt"
     last_path = ckpt_dir / "last_dual.pt"
 
-    with open(log_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(
-            [
-                "epoch",
-                "train_loss",
-                "val_loss",
-                "val_rot_err_watch",
-                "val_rot_err_phone",
-                "val_rot_err_mean",
-            ]
+    start_epoch = 1
+    best_err = float("inf")
+    if args.resume:
+        resume_path = resolve_path(args.resume)
+        ckpt = torch.load(resume_path, map_location=device)
+        model.load_state_dict(ckpt["model"])
+        start_epoch = int(ckpt.get("epoch", 0)) + 1
+        if best_path.exists():
+            best_ck = torch.load(best_path, map_location="cpu")
+            best_err = float(
+                best_ck.get("metrics", {}).get("rot_err_deg_mean", float("inf"))
+            )
+        print(
+            f"resume {resume_path.name} epoch={ckpt.get('epoch')} "
+            f"-> start {start_epoch}, best_err={best_err:.2f}°"
         )
 
-        best_err = float("inf")
+    log_mode = "a" if args.resume and log_path.exists() else "w"
+    with open(log_path, log_mode, newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        if log_mode == "w":
+            writer.writerow(
+                [
+                    "epoch",
+                    "train_loss",
+                    "val_loss",
+                    "val_rot_err_watch",
+                    "val_rot_err_phone",
+                    "val_rot_err_mean",
+                ]
+            )
+
         nan_epochs = 0
-        for epoch in range(1, cfg["train"]["epochs"] + 1):
+        for epoch in range(start_epoch, cfg["train"]["epochs"] + 1):
             model.train()
             running = 0.0
             n = 0

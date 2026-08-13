@@ -5,7 +5,7 @@ Build AMASS train/val windows for Week2 single-device R_SB estimation.
 For each sequence and each configured slot:
   - take bone-aligned IMU (acc, ori)
   - sample random R_SB (offset_per=window|sequence)
-  - apply mount offset → observed IMU
+  - apply mount offset on ori only (acc unchanged) → observed IMU
   - cut sliding windows; label = R_SB (matrix + 6D)
 
 Usage (repo root):

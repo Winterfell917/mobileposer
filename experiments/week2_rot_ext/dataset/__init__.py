@@ -138,10 +138,13 @@ def apply_mount_offset(
     r_sb: torch.Tensor,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Apply static mounting extrinsic R_SB (same convention as TIC offset, drift=I):
+    Apply static mounting extrinsic R_SB (ori only; acc unchanged):
 
         R_obs = R_bone @ R_SB
-        a_obs = R_SB^T @ a_bone   (acc as column vectors)
+        a_obs = a_bone
+
+    Acc is left as-is so the network focuses on recovering the constant
+    right-multiply from the orientation stream (matches advisor PPT protocol).
 
     Args:
         acc: [T, 3]
@@ -150,10 +153,8 @@ def apply_mount_offset(
     Returns:
         acc_obs [T, 3], ori_obs [T, 3, 3]
     """
-    # ori_obs[t] = ori[t] @ R_SB
     ori_obs = ori @ r_sb
-    # a_obs[t] = R_SB^T @ a[t]
-    acc_obs = (r_sb.transpose(0, 1) @ acc.unsqueeze(-1)).squeeze(-1)
+    acc_obs = acc.clone()
     return acc_obs, ori_obs
 
 
@@ -163,13 +164,13 @@ def calibrate_with_rsb(
     r_sb: torch.Tensor,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Inverse of apply_mount_offset:
+    Inverse of apply_mount_offset (ori only; acc unchanged):
 
         R_cal = R_obs @ R_SB^T
-        a_cal = R_SB @ a_obs
+        a_cal = a_obs
     """
     ori_cal = ori_obs @ r_sb.transpose(0, 1)
-    acc_cal = (r_sb @ acc_obs.unsqueeze(-1)).squeeze(-1)
+    acc_cal = acc_obs.clone()
     return acc_cal, ori_cal
 
 
