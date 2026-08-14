@@ -1,0 +1,60 @@
+# Week3 step 1 — position from a_M + R_MS with unknown R_BS.
+#
+# Advisor protocol:
+#   input  a_M, R_MS
+#   R_MS = R_MB @ R_BS   (independent R_BS per device)
+#   a_M  unchanged
+#   R_BS constant for the whole sequence
+#   network does NOT see R_BS; this step predicts watch/phone side only.
+#
+# Later steps (not this config): R_SB given Pred slot; then pose.
+
+experiment:
+  name: week3_pos_rsb
+  seed: 42
+
+imu_slots:
+  left_wrist: 0
+  right_wrist: 1
+  left_pocket: 2
+  right_pocket: 3
+
+data:
+  processed_amass_dir: data/processed
+  processed_imuposer_file: data/processed/eval/imuposer_full.pt
+  out_dir: experiments/week3_pos_rsb/outputs/data
+  fps: 30
+  window_len: 90
+  train_stride: 15
+  test_stride: 15
+  acc_scale: 30.0
+  input_dim: 24
+  offset_range_deg: 45.0
+  offset_per: sequence
+  amass_subsets:
+    - CMU
+    - ACCAD
+    - BioMotionLab_NTroje
+  val_ratio: 0.2
+
+model:
+  n_hidden: 128
+  n_lstm_layers: 2
+  bidirectional: true
+  dropout: 0.3
+
+train:
+  batch_size: 256
+  num_workers: 4
+  lr: 1.0e-3
+  weight_decay: 1.0e-4
+  epochs: 40
+  device: cuda:3
+  log_every: 20
+  ckpt_dir: experiments/week3_pos_rsb/outputs/checkpoints
+  log_dir: experiments/week3_pos_rsb/outputs/logs
+
+eval:
+  checkpoint: experiments/week3_pos_rsb/outputs/checkpoints/best_joint_acc.pt
+  batch_size: 256
+  log_dir: experiments/week3_pos_rsb/outputs/logs

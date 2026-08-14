@@ -53,10 +53,12 @@ venv.bak/
 **/tranpose/
 **/a.mp4
 
-# Keep Week1 experiment source (ignored by top-level dataset/ and **/data|checkpoints/)
+# Keep experiment source (ignored by top-level dataset/ and **/data|checkpoints/)
 !experiments/week1_pos_cls/dataset/
 !experiments/week1_pos_cls/dataset/**
 !experiments/week1_pos_cls/outputs/checkpoints/
 !experiments/week1_pos_cls/outputs/checkpoints/.gitkeep
 !experiments/week1_pos_cls/outputs/data/
 !experiments/week1_pos_cls/outputs/data/.gitkeep
+!experiments/week3_pos_rsb/dataset/
+!experiments/week3_pos_rsb/dataset/**
