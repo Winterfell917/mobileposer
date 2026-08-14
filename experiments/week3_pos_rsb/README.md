@@ -5,7 +5,7 @@
 > **Week2**：位置 **已知**，估 \(R_{SB}\)  
 > **Week3**：输入只有 \(a_M, R_{MS}\)，\(R_{SB}\) **未知**；先位置，再外参，再姿态
 
-## 第 1 步（本目录当前内容）：未知朝向推测设备位置
+## 第 1 步：未知朝向推测设备位置
 
 从 \(a_M, R_{MS}\) 推断设备位置。遵循附图协议：
 
@@ -46,9 +46,10 @@ experiments/week3_pos_rsb/
     build_amass.py
     pos_dataset.py
   models/pos_classifier.py
+  models/rot_extrinsic_dual.py   # Week2 dual 结构拷贝（不重训）
   train.py
-  eval.py
-  visualize.py
+  eval.py / visualize.py         # 第 1 步
+  eval_step2.py / visualize_step2.py
   outputs/{checkpoints,logs,figures,data}
 ```
 
@@ -107,6 +108,16 @@ python experiments/week3_pos_rsb/visualize.py --split test --combo lw_rp \
 - `cm_*.png`：混淆矩阵
 
 说明：mesh 姿态来自 IMUPoser GT pose；颜色表示本步位置分类结果（不是姿态预测）。
+
+### 5. 第 2 步：Pred 槽位 → \(R_{SB}\)（冻结 Week2 dual）
+```bash
+python experiments/week3_pos_rsb/eval_step2.py \
+  --config experiments/week3_pos_rsb/configs/default.yaml
+
+python experiments/week3_pos_rsb/visualize_step2.py
+```
+产物：`outputs/logs/metrics_step2.json`；图 `outputs/figures/step2_*.png`。  
+**不重训**外参网络：加载 `week2_rot_ext/.../best_rot_err_dual.pt`（epoch 38）与 `norm_stats_dual.pt`。位置网仍用本目录 `norm_stats.pt`。
 
 ## 结果记录（第 1 步）
 
@@ -261,12 +272,97 @@ Seq Joint 对照：Week1 四组合 0.467 / 0.749 / 0.461 / 0.778；Week3 为 0.5
 - 更长窗仍然有用；Walking / Kicking 等全身动态最好，上肢精细动作最差。
 - 本步输出的 Pred 槽位将作为第 2 步估 \(R_{SB}\) 的条件。
 
+## 第 2 步：由 Pred 位置推断 \(R_{SB}\)
+
+不重训 \(R_{SB}\) 网络。冻结 Week2 双设备 `RotExtrinsicDualNet`（`best_rot_err_dual.pt`，epoch 38），把第 1 步槽位转成 Week2 绝对槽后作为 one-hot 条件。
+
+槽位映射：第 1 步 \(y\in\{0,1\}\times\{0,1\}\) → `slot_watch∈{0,1}`、`slot_phone∈{2,3}`。  
+特征都是 24 维 acc+\(R_{MS}\)；**位置网用本目录 `norm_stats.pt`，外参网用 Week2 `norm_stats_dual.pt`**。
+
+协议与第 1 步相同：\(R_{MS}=R_{MB}R_{BS}\)，\(a_M\) 不拧，\(R_{BS}\) 序列恒定。
+
+对照（单位 °，越低越好）：
+
+| 条件 | 含义 |
+|------|------|
+| **None** | \(\hat{R}_{SB}=I\) |
+| **Pred-win** | 每窗用第 1 步 Pred 槽位 |
+| **Pred-seq** | 序列内多数投票槽位再喂 Week2 |
+| **GT-slot** | 真值位置喂 Week2（本协议上界，应≈ Week2 dual） |
+| **Oracle** | 完美 \(R_{SB}\)，0° |
+
+评测日期：2026-08-14。W=90；AMASS val n=79636；IMUPoser 每组合 n=6003 / 167 序列。
+
+### 主表（\(R_{SB}\) geodesic mean °）
+
+| Split | None | Pred-win | Pred-seq | GT-slot |
+|-------|-----:|---------:|---------:|--------:|
+| AMASS Val | 43.07 | 16.32 | **15.67** | 15.21 |
+| IMUPoser LW+LP | 43.83 | 26.81 | **26.66** | 25.67 |
+| IMUPoser LW+RP | 43.87 | 29.00 | **28.35** | 27.41 |
+| IMUPoser RW+LP | 43.95 | 29.38 | **28.98** | 26.71 |
+| IMUPoser RW+RP | 42.65 | 31.38 | **30.47** | 28.76 |
+
+Watch / Phone 拆开（Pred-seq / GT-slot）：
+
+| Split | Pred-seq W / P | GT-slot W / P |
+|-------|----------------|---------------|
+| AMASS Val | 19.09 / 12.26 | 18.66 / 11.77 |
+| LW+LP | 31.00 / 22.33 | 29.83 / 21.50 |
+| LW+RP | 31.17 / 25.52 | 30.75 / 24.07 |
+| RW+LP | 32.75 / 25.21 | 30.97 / 22.45 |
+| RW+RP | 35.07 / 25.87 | 33.31 / 24.21 |
+
+### 分层：位置对不对，外参差多少
+
+第 1 步 Joint 正确时，Pred-win 与 GT-slot **逐窗相同**（槽位一致，外参网冻结）。错误时才出现级联惩罚。
+
+| Split | Joint OK n | Pred = GT-slot | Joint BAD n | Pred-win | GT-slot |
+|-------|-----------:|---------------:|------------:|---------:|--------:|
+| AMASS Val | 66247 | **14.27** | 13389 | 26.46 | 19.86 |
+| LW+LP | 3876 | **24.87** | 2127 | 30.35 | 27.12 |
+| LW+RP | 3271 | **26.01** | 2732 | 32.57 | 29.08 |
+| RW+LP | 3995 | **26.43** | 2008 | 35.26 | 27.27 |
+| RW+RP | 3818 | **27.84** | 2185 | 37.57 | 30.38 |
+
+### 与 Week2 dual（位置已知）对照
+
+Week2 dual 在 **已知槽位、只拧朝向** 下：AMASS val **15.12°**（watch 18.55 / phone 11.68）；IMUPoser D5 为 40 条序列子集 **26.03°**。
+
+| | Week2 dual（GT 槽） | Week3 GT-slot | Week3 Pred-seq |
+|--|--------------------:|--------------:|---------------:|
+| AMASS Val mean ° | **15.12** | 15.21 | 15.67 |
+| AMASS watch / phone | 18.55 / 11.68 | 18.66 / 11.77 | 19.09 / 12.26 |
+
+AMASS 上 GT-slot 与 Week2 差 **0.09°**（同一 79636 窗、同一冻结权重），说明本步协议与 Week2 dual 对齐。Pred-seq 相对 GT-slot 只多 **0.46°**。
+
+真机不可与 Week2 D5 的 26.03° 直接比绝对值：D5 是 40 序列子集，本步是 167 序列全量。公平上界是本表 GT-slot（25.7–28.8°）；Pred-seq 相对该上界多 **0.9–2.3°**。
+
+图：
+- `outputs/figures/step2_rsb_main.png`：None / Pred-win / Pred-seq / GT-slot 分组柱
+- `outputs/figures/step2_amass_watch_phone.png`：AMASS 表/机拆开
+- `outputs/figures/step2_amass_stratified.png`：Joint OK vs BAD
+
+### 第 2 步解读
+
+1. **级联几乎吃满 Week2 上界。** AMASS Pred-seq 15.67° vs GT-slot 15.21° vs Week2 15.12°。第 1 步 Joint 0.83 已经够用：83% 窗上外参误差与「位置已知」完全相同（14.27°）；剩下 17% 窗 Pred 26.46 vs GT 19.86，槽位错了大约再罚 **6.6°**。
+2. **序列投票略优于逐窗。** AMASS 16.32→15.67°；真机每组合再降 0.1–0.9°。\(R_{BS}\) 序列恒定，多数投票把第 1 步的窗级抖动抹掉。
+3. **相对 None（≈43°）收益很大。** 合成从 43° 降到 ~16°；真机降到 27–30°。不估外参等于把 \(\pm 45^\circ\) 的 \(R_{BS}\) 整段吃进后续姿态。
+4. **真机瓶颈仍是外参网本身，不是位置错。** Joint BAD 时 Pred 相对 GT-slot 只再差 3–8°；而 GT-slot 已经在 26–29°（域差）。RW+LP / RW+RP 的级联惩罚更大，与第 1 步 Watch Acc 略低、错槽更多一致。
+5. **腕难袋易沿用 Week2。** AMASS Pred-seq watch 19.09° / phone 12.26°，与 Week2 dual 的 18.55 / 11.68 同形态。
+
+### 简要结论
+- 未知朝向下：**位置 Pred → 冻结 Week2 dual** 可以把 \(R_{SB}\) 从 ~43° 拉到合成 **15.7°**、真机 **27–30°**，接近位置已知的上界。
+- 不必为第 2 步重训外参网；第 1 步 Joint ~0.83 时，槽位误差对外参的边际伤害很小（AMASS +0.46°）。
+- 本步 \(\hat{R}_{SB}\) 供第 3 步 \(R_{MB}=R_{MS}\hat{R}_{SB}^{\top}\) 接 MobilePoser。
+
 ## 后续步骤（未实现）
 
-2. 用 Pred 位置条件化，估 \(R_{SB}\)（接 Week2）  
-3. \(R_{MB}=R_{MS}R_{SB}^{\top}\) → MobilePoser 姿态，并做 \(R_{MS}\to\) pose baseline 可视化
+3. \(R_{MB}=R_{MS}\hat{R}_{SB}^{\top}\) → MobilePoser 姿态，并做 \(R_{MS}\to\) pose baseline 可视化
 
 ## 已知注意点
 - IMUPoser 官方数据是 5 路全开；测试时把录制 ori 当作 \(R_{MB}\) 再乘随机 \(R_{BS}\)。
 - 与 Week1 对照时，输入模态也不相同（gyro vs \(R_{MS}\)），AMASS Val 是更干净的「只改朝向协议」对照。
+- 第 2 步外参网与位置网 **各自归一化**：勿把 Week3 `norm_stats.pt` 喂给 Week2 dual。
+- Week2 D5 外参 26.03° 是 40 序列子集；本步 IMUPoser 与第 1 步相同，为 167 序列。
 - `outputs/` 下 checkpoint / metrics JSON / 图视为可复现产物，默认不提交；以本 README 结果表为对外记录。

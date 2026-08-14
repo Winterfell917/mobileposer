@@ -58,3 +58,8 @@ eval:
   checkpoint: experiments/week3_pos_rsb/outputs/checkpoints/best_joint_acc.pt
   batch_size: 256
   log_dir: experiments/week3_pos_rsb/outputs/logs
+
+# Step 2: Pred slot from step 1 conditions the frozen Week2 dual R_SB net.
+step2:
+  week2_dual_checkpoint: experiments/week2_rot_ext/outputs/checkpoints/best_rot_err_dual.pt
+  week2_dual_norm_stats: experiments/week2_rot_ext/outputs/data/norm_stats_dual.pt

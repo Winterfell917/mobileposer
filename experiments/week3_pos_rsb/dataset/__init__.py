@@ -44,6 +44,41 @@ def combo_to_indices(y_watch: int, y_phone: int) -> Tuple[int, int]:
     return watch_idx, phone_idx
 
 
+def sides_to_abs_slots(y_watch, y_phone):
+    """Week1/3 side labels {0,1}×{0,1} → Week2 absolute slots {0,1}×{2,3}."""
+    return y_watch, y_phone + 2
+
+
+def r6d_to_rotation_matrix(r6d: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
+    a1 = r6d[..., 0:3]
+    a2 = r6d[..., 3:6]
+    b1 = torch.nn.functional.normalize(a1, dim=-1, eps=eps)
+    b2 = a2 - (b1 * a2).sum(dim=-1, keepdim=True) * b1
+    b2 = torch.nn.functional.normalize(b2, dim=-1, eps=eps)
+    b3 = torch.cross(b1, b2, dim=-1)
+    return torch.stack([b1, b2, b3], dim=-1)
+
+
+def rotation_cos(r1: torch.Tensor, r2: torch.Tensor) -> torch.Tensor:
+    rel = r1.transpose(-1, -2) @ r2
+    return ((rel.diagonal(dim1=-2, dim2=-1).sum(-1) - 1.0) * 0.5).clamp(
+        -1.0 + 1e-7, 1.0 - 1e-7
+    )
+
+
+def geodesic_angle_deg(r1: torch.Tensor, r2: torch.Tensor) -> torch.Tensor:
+    return torch.acos(rotation_cos(r1, r2)) * (180.0 / np.pi)
+
+
+def calibrate_with_rsb(
+    acc_obs: torch.Tensor,
+    ori_obs: torch.Tensor,
+    r_sb: torch.Tensor,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """R_cal = R_obs @ R_SB^T; a_cal = a_obs."""
+    return acc_obs.clone(), ori_obs @ r_sb.transpose(0, 1)
+
+
 def _euler_xyz_to_matrix(euler: torch.Tensor) -> torch.Tensor:
     cx, cy, cz = torch.cos(euler[:, 0]), torch.cos(euler[:, 1]), torch.cos(euler[:, 2])
     sx, sy, sz = torch.sin(euler[:, 0]), torch.sin(euler[:, 1]), torch.sin(euler[:, 2])

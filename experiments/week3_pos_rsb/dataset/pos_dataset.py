@@ -25,6 +25,29 @@ def amass_seed_offset(seq_i: int, y_watch: int, y_phone: int, base: int) -> int:
     return int(base) + 10007 * int(seq_i) + 17 * int(y_watch) + 3 * int(y_phone)
 
 
+def _inject_pair(
+    acc: torch.Tensor,
+    ori: torch.Tensor,
+    start: int,
+    window_len: int,
+    y_watch: int,
+    y_phone: int,
+    offset_range_deg: float,
+    acc_scale: float,
+    seed: int,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Return (x[T,24], R_BS_watch[3,3], R_BS_phone[3,3]). Seed is seq-level."""
+    w_idx, p_idx = combo_to_indices(int(y_watch), int(y_phone))
+    gen = torch.Generator().manual_seed(int(seed))
+    r_w = sample_random_offsets(1, offset_range_deg, generator=gen)[0]
+    r_p = sample_random_offsets(1, offset_range_deg, generator=gen)[0]
+    sl = slice(int(start), int(start) + int(window_len))
+    acc_w, ori_w = apply_mount_offset(acc[sl, w_idx], ori[sl, w_idx], r_w)
+    acc_p, ori_p = apply_mount_offset(acc[sl, p_idx], ori[sl, p_idx], r_p)
+    x = make_rms_features(acc_w, ori_w, acc_p, ori_p, acc_scale)
+    return x, r_w, r_p
+
+
 def _inject_window(
     acc: torch.Tensor,
     ori: torch.Tensor,
@@ -36,14 +59,11 @@ def _inject_window(
     acc_scale: float,
     seed: int,
 ) -> torch.Tensor:
-    w_idx, p_idx = combo_to_indices(int(y_watch), int(y_phone))
-    gen = torch.Generator().manual_seed(int(seed))
-    r_w = sample_random_offsets(1, offset_range_deg, generator=gen)[0]
-    r_p = sample_random_offsets(1, offset_range_deg, generator=gen)[0]
-    sl = slice(int(start), int(start) + int(window_len))
-    acc_w, ori_w = apply_mount_offset(acc[sl, w_idx], ori[sl, w_idx], r_w)
-    acc_p, ori_p = apply_mount_offset(acc[sl, p_idx], ori[sl, p_idx], r_p)
-    return make_rms_features(acc_w, ori_w, acc_p, ori_p, acc_scale)
+    x, _, _ = _inject_pair(
+        acc, ori, start, window_len, y_watch, y_phone,
+        offset_range_deg, acc_scale, seed,
+    )
+    return x
 
 
 class AmassRmsPosDataset(Dataset):
@@ -144,6 +164,97 @@ class ImuposerRmsPosDataset(Dataset):
             x,
             torch.tensor(self.y_watch, dtype=torch.long),
             torch.tensor(self.y_phone, dtype=torch.long),
+        )
+
+
+class AmassRmsCascadeDataset(Dataset):
+    """Raw a_M+R_MS windows + GT R_BS for Week3 step-2 cascade eval.
+
+    Does not normalize: caller applies pos-net stats and Week2 dual stats.
+    """
+
+    def __init__(
+        self,
+        sequences: List[Tuple[torch.Tensor, torch.Tensor]],
+        index: torch.Tensor,
+        *,
+        window_len: int,
+        acc_scale: float,
+        offset_range_deg: float,
+        seed: int,
+    ):
+        self.sequences = sequences
+        self.index = index.long()
+        self.window_len = int(window_len)
+        self.acc_scale = float(acc_scale)
+        self.offset_range_deg = float(offset_range_deg)
+        self.seed = int(seed)
+
+    def __len__(self) -> int:
+        return int(self.index.shape[0])
+
+    def __getitem__(self, i: int):
+        seq_i, yw, yp, start = self.index[i].tolist()
+        acc, ori = self.sequences[seq_i]
+        seed = amass_seed_offset(seq_i, yw, yp, self.seed)
+        x, r_w, r_p = _inject_pair(
+            acc, ori, start, self.window_len, yw, yp,
+            self.offset_range_deg, self.acc_scale, seed,
+        )
+        return (
+            x,
+            torch.tensor(yw, dtype=torch.long),
+            torch.tensor(yp, dtype=torch.long),
+            r_w,
+            r_p,
+            torch.tensor(seq_i, dtype=torch.long),
+            torch.tensor(int(start), dtype=torch.long),
+        )
+
+
+class ImuposerRmsCascadeDataset(Dataset):
+    """IMUPoser cascade windows: recorded stream as R_MB, seq-level R_BS."""
+
+    def __init__(
+        self,
+        sequences: List[Tuple[torch.Tensor, torch.Tensor]],
+        index: torch.Tensor,
+        *,
+        window_len: int,
+        acc_scale: float,
+        offset_range_deg: float,
+        seed: int,
+        y_watch: int,
+        y_phone: int,
+    ):
+        self.sequences = sequences
+        self.index = index.long()
+        self.window_len = int(window_len)
+        self.acc_scale = float(acc_scale)
+        self.offset_range_deg = float(offset_range_deg)
+        self.seed = int(seed)
+        self.y_watch = int(y_watch)
+        self.y_phone = int(y_phone)
+
+    def __len__(self) -> int:
+        return int(self.index.shape[0])
+
+    def __getitem__(self, i: int):
+        seq_i, start = self.index[i].tolist()
+        acc, ori = self.sequences[seq_i]
+        seed = amass_seed_offset(seq_i, self.y_watch, self.y_phone, self.seed + 1009)
+        x, r_w, r_p = _inject_pair(
+            acc, ori, start, self.window_len, self.y_watch, self.y_phone,
+            self.offset_range_deg, self.acc_scale, seed,
+        )
+        return (
+            x,
+            torch.tensor(self.y_watch, dtype=torch.long),
+            torch.tensor(self.y_phone, dtype=torch.long),
+            r_w,
+            r_p,
+            torch.tensor(seq_i, dtype=torch.long),
+            torch.tensor(int(start), dtype=torch.long),
         )
 
 
