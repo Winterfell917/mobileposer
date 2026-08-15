@@ -7,7 +7,7 @@
 #   R_BS constant for the whole sequence
 #   network does NOT see R_BS; this step predicts watch/phone side only.
 #
-# Later steps (not this config): R_SB given Pred slot; then pose.
+# Later steps: Pred slot → R_SB (step2); calib R_MB → MobilePoser pose (step3).
 
 experiment:
   name: week3_pos_rsb
@@ -63,3 +63,13 @@ eval:
 step2:
   week2_dual_checkpoint: experiments/week2_rot_ext/outputs/checkpoints/best_rot_err_dual.pt
   week2_dual_norm_stats: experiments/week2_rot_ext/outputs/data/norm_stats_dual.pt
+
+# Step 3: calib R_MB = R_MS @ R_SB^T → MobilePoser [watch, phone, Head].
+step3:
+  mobileposer_checkpoint: checkpoints/weights.pth
+  pose_max_seqs: 12
+  pose_combos:
+    - [0, 0]
+    - [0, 1]
+    - [1, 0]
+    - [1, 1]

@@ -50,6 +50,7 @@ experiments/week3_pos_rsb/
   train.py
   eval.py / visualize.py         # 第 1 步
   eval_step2.py / visualize_step2.py
+  eval_step3.py / visualize_step3.py / cascade_pose.py
   outputs/{checkpoints,logs,figures,data}
 ```
 
@@ -118,6 +119,16 @@ python experiments/week3_pos_rsb/visualize_step2.py
 ```
 产物：`outputs/logs/metrics_step2.json`；图 `outputs/figures/step2_*.png`。  
 **不重训**外参网络：加载 `week2_rot_ext/.../best_rot_err_dual.pt`（epoch 38）与 `norm_stats_dual.pt`。位置网仍用本目录 `norm_stats.pt`。
+
+### 6. 第 3 步：校准 \(R_{MB}\) 接 MobilePoser
+```bash
+python experiments/week3_pos_rsb/eval_step3.py \
+  --config experiments/week3_pos_rsb/configs/default.yaml
+
+python experiments/week3_pos_rsb/visualize_step3.py --combo lw_rp --seq-ids 13,8
+```
+产物：`outputs/logs/metrics_step3.json`；图 `outputs/figures/step3_*.png`。  
+需官方 `checkpoints/weights.pth`。默认 12 序列 × 四组合（与 Week2 姿态下游相同），打包 `[watch, phone, Head]`，Head 不注入。
 
 ## 结果记录（第 1 步）
 
@@ -356,13 +367,83 @@ AMASS 上 GT-slot 与 Week2 差 **0.09°**（同一 79636 窗、同一冻结权�
 - 不必为第 2 步重训外参网；第 1 步 Joint ~0.83 时，槽位误差对外参的边际伤害很小（AMASS +0.46°）。
 - 本步 \(\hat{R}_{SB}\) 供第 3 步 \(R_{MB}=R_{MS}\hat{R}_{SB}^{\top}\) 接 MobilePoser。
 
-## 后续步骤（未实现）
+## 第 3 步：校准后接 MobilePoser 姿态
 
-3. \(R_{MB}=R_{MS}\hat{R}_{SB}^{\top}\) → MobilePoser 姿态，并做 \(R_{MS}\to\) pose baseline 可视化
+公式与 Week2 姿态下游相同：
+
+\[
+R_{MB} = R_{MS}\,\hat{R}_{SB}^{\top},\quad a_M = a_{\mathrm{obs}}
+\]
+
+冻结第 1 步位置网 + 第 2 步 Week2 dual，把校准后的 \(R_{MB},a_M\) 送入官方 MobilePoser（`checkpoints/weights.pth`）。每组打包 `[watch, phone, Head]`，Head 不注入。默认 **12 序列 × 四组合**（与 Week2 姿态下游同一批序列，便于对照）。
+
+对照（越低越好）：
+
+| 条件 | 含义 |
+|------|------|
+| **None** | 不校准，\(R_{MS}\to\) pose |
+| **Pred-seq** | 第 1 步序列多数投票槽位 → Week2 dual \(\hat{R}_{SB}\) → 校准 → pose |
+| **GT-slot** | 真值位置喂 Week2（本协议上界 ≈ Week2 dual Learned） |
+| **Oracle** | 完美 \(R_{SB}\) |
+
+评测日期：2026-08-15。W=90；AMASS / IMUPoser 各 12 序列、48 combo-run。  
+序列级 Joint（多数投票槽位都对）：AMASS **0.979**，IMUPoser **0.792**。
+
+### 主表（四组合平均）
+
+| 数据 | None pos | **Pred-seq pos** | GT-slot pos | Oracle pos | None ang | **Pred-seq ang** | GT-slot ang | Oracle ang |
+|------|--------:|-----------------:|-----------:|-----------:|---------:|-----------------:|-----------:|-----------:|
+| AMASS | 15.53 | **13.65** | 13.64 | 13.12 | 31.19 | **27.04** | 27.00 | 25.78 |
+| IMUPoser | 11.57 | **6.60** | 6.38 | 5.46 | 22.36 | **14.48** | 14.03 | 12.20 |
+
+单位：位置 cm / 角度 °。SIP / mesh 同序：AMASS None 34.7° / 19.1 cm → Pred 30.3° / 16.8 cm；IMUPoser None 24.0° / 14.0 cm → Pred 14.9° / 8.1 cm。
+
+### IMUPoser 分组合位置 cm
+
+| combo | None | Pred-seq | GT-slot | Oracle |
+|-------|-----:|---------:|--------:|-------:|
+| lw_lp_h | 11.65 | **6.19** | 6.10 | 5.42 |
+| lw_rp_h（官方训配） | 10.56 | **6.39** | 6.17 | 5.33 |
+| rw_lp_h | 12.75 | **6.86** | 6.32 | 5.55 |
+| rw_rp_h | 11.34 | **6.96** | 6.95 | 5.54 |
+
+AMASS 四分位同样挤在 13.5–13.8 cm（None 14.4–16.6），Pred-seq 与 GT-slot 几乎逐组合重合。
+
+### 与 Week2 dual 姿态下游对照
+
+同一 12 序列、同一官方权重。Week2 位置已知；本步位置由第 1 步 Pred。Oracle 应对齐（完美 \(R_{SB}\) 与注入无关）。
+
+| | Week2 dual Learned | Week3 GT-slot | Week3 Pred-seq | Week2/3 Oracle |
+|--|-------------------:|--------------:|---------------:|---------------:|
+| AMASS pos cm | **13.53** | 13.64 | 13.65 | 13.12 |
+| AMASS ang ° | 26.80 | 27.00 | 27.04 | 25.78 |
+| IMUPoser pos cm | **6.87** | 6.38 | 6.60 | 5.46 |
+| IMUPoser ang ° | 15.02 | 14.03 | 14.48 | 12.20 |
+
+None 与 Learned 因 \(R_{BS}\) 采样种子不同，不能逐窗对齐；Oracle 两边都是 13.12 / 5.46 cm，说明姿态主网与序列集合一致。
+
+图：
+- `outputs/figures/step3_pose_pos.png` / `step3_pose_ang.png`：None / Pred-seq / GT-slot / Oracle
+- `outputs/figures/step3_imuposer_pos_combo.png`：真机分组合
+- `outputs/figures/step3_mesh_seq013_lw_rp.png` / `step3_mesh_seq008_lw_rp.png`：GT vs \(R_{MS}\to\) pose vs 级联（与第 1 步同一对好/坏序列）
+
+### 第 3 步解读
+
+1. **未知朝向闭环成立。** None > Pred-seq ≥ GT-slot ≥ Oracle。合成位置 15.5→13.7 cm（接近 Oracle 13.1）；真机 **11.6→6.6 cm**（Oracle 5.5），角度 22.4°→14.5°。
+2. **级联几乎不比「位置已知」差。** AMASS Pred 与 GT-slot 差 **0.01 cm**（序列 Joint 0.98）。真机差 **0.22 cm**（序列 Joint 0.79），远小于 None→Oracle 的 6 cm 空间。
+3. **真机收益远大于合成。** 与 Week2 相同：acc 未拧，None 在合成上本就不差；真机未校准的 \(R_{MS}\) 会把 \(\pm 45^\circ\) 外参整段送进姿态网。
+4. **四组合都能用。** 官方训配 `lw_rp_h` 不是唯一能跑的；另外三组 Pred 也在 6.2–7.0 cm。解读时仍以 `lw_rp_h` 为主。
+5. **瓶颈在姿态网与真机域，不在第 1 步。** 再抠位置分类对姿态只有约 2 mm 量级；真机 GT-slot 已在 6.4 cm，离 Oracle 5.5 cm 只剩外参网域差。
+
+### 简要结论
+- 位置 Pred → \(R_{SB}\) → \(R_{MB}\) → MobilePoser **可以接上**：真机位置误差从 **12 cm 降到 6.6 cm**，接近位置已知的 Week2 Learned（6.9 cm）与 Oracle（5.5 cm）。
+- 不必为姿态这一步重训任何网络。未知朝向的主要伤害已经被第 2 步的 \(\hat{R}_{SB}\) 吃掉。
+- \(R_{MS}\to\) pose 基线（None）在真机上明显更差，可视化见 `step3_mesh_seq*`。
 
 ## 已知注意点
 - IMUPoser 官方数据是 5 路全开；测试时把录制 ori 当作 \(R_{MB}\) 再乘随机 \(R_{BS}\)。
 - 与 Week1 对照时，输入模态也不相同（gyro vs \(R_{MS}\)），AMASS Val 是更干净的「只改朝向协议」对照。
 - 第 2 步外参网与位置网 **各自归一化**：勿把 Week3 `norm_stats.pt` 喂给 Week2 dual。
-- Week2 D5 外参 26.03° 是 40 序列子集；本步 IMUPoser 与第 1 步相同，为 167 序列。
+- Week2 D5 外参 26.03° 是 40 序列子集；第 1/2 步 IMUPoser 为 167 序列；**第 3 步姿态默认 12 序列**（与 Week2 姿态下游对齐）。
+- 第 3 步需要官方 `checkpoints/weights.pth`。
 - `outputs/` 下 checkpoint / metrics JSON / 图视为可复现产物，默认不提交；以本 README 结果表为对外记录。

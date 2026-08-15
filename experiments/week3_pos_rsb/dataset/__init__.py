@@ -49,6 +49,26 @@ def sides_to_abs_slots(y_watch, y_phone):
     return y_watch, y_phone + 2
 
 
+def slide_windows(
+    x: torch.Tensor,
+    window_len: int,
+    stride: int,
+) -> List[Tuple[int, torch.Tensor]]:
+    """x: [T, C] -> list of (start, [W, C])."""
+    t = x.shape[0]
+    if t < window_len:
+        return []
+    outs = []
+    for start in range(0, t - window_len + 1, stride):
+        outs.append((start, x[start : start + window_len].clone()))
+    return outs
+
+
+def rotation_matrix_to_r6d(r: torch.Tensor) -> torch.Tensor:
+    """r: [..., 3, 3] -> [..., 6] (first two columns)."""
+    return torch.cat([r[..., :, 0], r[..., :, 1]], dim=-1)
+
+
 def r6d_to_rotation_matrix(r6d: torch.Tensor, eps: float = 1e-8) -> torch.Tensor:
     a1 = r6d[..., 0:3]
     a2 = r6d[..., 3:6]
