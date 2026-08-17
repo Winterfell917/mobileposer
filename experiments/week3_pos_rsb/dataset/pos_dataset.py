@@ -1,7 +1,8 @@
-"""Online Week3 step-1 position datasets with unknown sequence-level R_BS.
+"""Online Week3 step-1 position datasets with window-constant R_BS.
 
-Windows are NOT materialized on disk. Each (sequence, combo) has a
-deterministic R_BS pair; every window of that pair shares it.
+Windows are NOT materialized on disk. Each window has its own
+deterministic R_BS pair (constant inside the 90-frame window,
+independent across windows of the same sequence).
 Input features: a_M(3)+R_MS(9) per device → [T, 24].
 """
 from __future__ import annotations
@@ -21,8 +22,21 @@ from dataset import (
 )
 
 
-def amass_seed_offset(seq_i: int, y_watch: int, y_phone: int, base: int) -> int:
-    return int(base) + 10007 * int(seq_i) + 17 * int(y_watch) + 3 * int(y_phone)
+def amass_seed_offset(
+    seq_i: int,
+    y_watch: int,
+    y_phone: int,
+    base: int,
+    start: int = 0,
+) -> int:
+    """Deterministic seed. `start` makes R_BS independent per window."""
+    return (
+        int(base)
+        + 10007 * int(seq_i)
+        + 17 * int(y_watch)
+        + 3 * int(y_phone)
+        + 100003 * int(start)
+    )
 
 
 def _inject_pair(
@@ -36,7 +50,7 @@ def _inject_pair(
     acc_scale: float,
     seed: int,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Return (x[T,24], R_BS_watch[3,3], R_BS_phone[3,3]). Seed is seq-level."""
+    """Return (x[T,24], R_BS_watch[3,3], R_BS_phone[3,3]). Seed is window-level."""
     w_idx, p_idx = combo_to_indices(int(y_watch), int(y_phone))
     gen = torch.Generator().manual_seed(int(seed))
     r_w = sample_random_offsets(1, offset_range_deg, generator=gen)[0]
@@ -96,7 +110,7 @@ class AmassRmsPosDataset(Dataset):
     def __getitem__(self, i: int):
         seq_i, yw, yp, start = self.index[i].tolist()
         acc, ori = self.sequences[seq_i]
-        seed = amass_seed_offset(seq_i, yw, yp, self.seed)
+        seed = amass_seed_offset(seq_i, yw, yp, self.seed, start)
         x = _inject_window(
             acc,
             ori,
@@ -114,7 +128,7 @@ class AmassRmsPosDataset(Dataset):
 
 
 class ImuposerRmsPosDataset(Dataset):
-    """IMUPoser recorded stream treated as R_MB; inject seq-level R_BS."""
+    """IMUPoser recorded stream treated as R_MB; inject window-level R_BS."""
 
     def __init__(
         self,
@@ -147,7 +161,7 @@ class ImuposerRmsPosDataset(Dataset):
     def __getitem__(self, i: int):
         seq_i, start = self.index[i].tolist()
         acc, ori = self.sequences[seq_i]
-        seed = amass_seed_offset(seq_i, self.y_watch, self.y_phone, self.seed + 1009)
+        seed = amass_seed_offset(seq_i, self.y_watch, self.y_phone, self.seed + 1009, start)
         x = _inject_window(
             acc,
             ori,
@@ -196,7 +210,7 @@ class AmassRmsCascadeDataset(Dataset):
     def __getitem__(self, i: int):
         seq_i, yw, yp, start = self.index[i].tolist()
         acc, ori = self.sequences[seq_i]
-        seed = amass_seed_offset(seq_i, yw, yp, self.seed)
+        seed = amass_seed_offset(seq_i, yw, yp, self.seed, start)
         x, r_w, r_p = _inject_pair(
             acc, ori, start, self.window_len, yw, yp,
             self.offset_range_deg, self.acc_scale, seed,
@@ -213,7 +227,7 @@ class AmassRmsCascadeDataset(Dataset):
 
 
 class ImuposerRmsCascadeDataset(Dataset):
-    """IMUPoser cascade windows: recorded stream as R_MB, seq-level R_BS."""
+    """IMUPoser cascade windows: recorded stream as R_MB, window-level R_BS."""
 
     def __init__(
         self,
@@ -242,7 +256,7 @@ class ImuposerRmsCascadeDataset(Dataset):
     def __getitem__(self, i: int):
         seq_i, start = self.index[i].tolist()
         acc, ori = self.sequences[seq_i]
-        seed = amass_seed_offset(seq_i, self.y_watch, self.y_phone, self.seed + 1009)
+        seed = amass_seed_offset(seq_i, self.y_watch, self.y_phone, self.seed + 1009, start)
         x, r_w, r_p = _inject_pair(
             acc, ori, start, self.window_len, self.y_watch, self.y_phone,
             self.offset_range_deg, self.acc_scale, seed,
@@ -359,7 +373,7 @@ def compute_norm_stats(
     for i in range(n):
         seq_i, yw, yp, start = index[i].tolist()
         acc, ori = sequences[seq_i]
-        seed_i = amass_seed_offset(seq_i, yw, yp, seed)
+        seed_i = amass_seed_offset(seq_i, yw, yp, seed, start)
         x = _inject_window(
             acc, ori, start, window_len, yw, yp, offset_range_deg, acc_scale, seed_i
         )

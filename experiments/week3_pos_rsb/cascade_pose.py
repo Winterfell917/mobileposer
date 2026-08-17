@@ -168,6 +168,79 @@ def inject_combo(
     return acc_obs, ori_obs, r_w, r_p
 
 
+def iter_segments(t_len: int, window_len: int) -> List[Tuple[int, int]]:
+    """Non-overlapping pieces of length window_len; remainder joins the last."""
+    if t_len < window_len:
+        return []
+    n = t_len // window_len
+    segs = [(i * window_len, (i + 1) * window_len) for i in range(n - 1)]
+    segs.append(((n - 1) * window_len, t_len))
+    return segs
+
+
+def inject_piecewise(
+    acc_all: torch.Tensor,
+    ori_all: torch.Tensor,
+    w_idx: int,
+    p_idx: int,
+    offset_range: float,
+    seed: int,
+    window_len: int,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """R_BS constant inside each window_len segment, independent across segments."""
+    t_len = acc_all.shape[0]
+    acc_obs = acc_all.clone()
+    ori_obs = ori_all.clone()
+    r_w_t = acc_all.new_zeros(t_len, 3, 3)
+    r_p_t = acc_all.new_zeros(t_len, 3, 3)
+    eye = torch.eye(3, dtype=acc_all.dtype)
+    r_w_t[:] = eye
+    r_p_t[:] = eye
+    for start, end in iter_segments(t_len, window_len):
+        gen = torch.Generator().manual_seed(int(seed) + 100003 * int(start))
+        r_w = sample_random_offsets(1, offset_range, generator=gen)[0]
+        r_p = sample_random_offsets(1, offset_range, generator=gen)[0]
+        sl = slice(start, end)
+        acc_obs[sl, w_idx], ori_obs[sl, w_idx] = apply_mount_offset(
+            acc_all[sl, w_idx], ori_all[sl, w_idx], r_w
+        )
+        acc_obs[sl, p_idx], ori_obs[sl, p_idx] = apply_mount_offset(
+            acc_all[sl, p_idx], ori_all[sl, p_idx], r_p
+        )
+        r_w_t[sl] = r_w
+        r_p_t[sl] = r_p
+    return acc_obs, ori_obs, r_w_t, r_p_t
+
+
+def window_features_span(
+    acc_w: torch.Tensor,
+    ori_w: torch.Tensor,
+    acc_p: torch.Tensor,
+    ori_p: torch.Tensor,
+    start: int,
+    end: int,
+    window_len: int,
+    stride: int,
+    acc_scale: float,
+) -> Optional[torch.Tensor]:
+    feats = []
+    last = end - window_len
+    if last < start:
+        return None
+    for s in range(int(start), int(last) + 1, stride):
+        sl = slice(s, s + window_len)
+        feats.append(make_rms_features(acc_w[sl], ori_w[sl], acc_p[sl], ori_p[sl], acc_scale))
+    if not feats:
+        return None
+    return torch.stack(feats, dim=0)
+
+
+def _calib_range(acc_all, ori_all, slot, r_sb, start, end) -> None:
+    a, o = calibrate_with_rsb(acc_all[start:end, slot], ori_all[start:end, slot], r_sb)
+    acc_all[start:end, slot] = a
+    ori_all[start:end, slot] = o
+
+
 def cascade_calibrated(
     acc_all: torch.Tensor,
     ori_all: torch.Tensor,
@@ -190,35 +263,60 @@ def cascade_calibrated(
     rot_std: torch.Tensor,
     device: torch.device,
 ) -> Optional[Dict[str, Tuple[torch.Tensor, torch.Tensor]]]:
-    """Return acc/ori for none / pred_seq / gt_slot / oracle, plus hats."""
-    acc_obs, ori_obs, r_w, r_p = inject_combo(
-        acc_all, ori_all, w_idx, p_idx, offset_range, seed
+    """Return acc/ori for none / pred_seq / gt_slot / oracle.
+
+    R_BS is piecewise-constant on window_len segments. Pred-seq / GT-slot
+    aggregate only *inside* a segment (majority slot + mean R_SB), which
+    is valid because the true mount is constant there.
+    """
+    acc_obs, ori_obs, r_w_t, r_p_t = inject_piecewise(
+        acc_all, ori_all, w_idx, p_idx, offset_range, seed, window_len
     )
-    x = window_features(
-        acc_obs[:, w_idx],
-        ori_obs[:, w_idx],
-        acc_obs[:, p_idx],
-        ori_obs[:, p_idx],
-        window_len,
-        stride,
-        acc_scale,
-    )
-    if x is None:
+    segs = iter_segments(acc_obs.shape[0], window_len)
+    if not segs:
         return None
-    pw, pp = predict_sides(pos_model, x, pos_mean, pos_std, device)
-    yw_hat, yp_hat = majority_side(pw), majority_side(pp)
-    r_w_pred, r_p_pred = estimate_rsb_pair(
-        rot_model, x, yw_hat, yp_hat, rot_mean, rot_std, device
-    )
-    r_w_gt, r_p_gt = estimate_rsb_pair(
-        rot_model, x, y_watch, y_phone, rot_mean, rot_std, device
-    )
-    acc_pred, ori_pred = calib_slot(acc_obs, ori_obs, w_idx, r_w_pred)
-    acc_pred, ori_pred = calib_slot(acc_pred, ori_pred, p_idx, r_p_pred)
-    acc_gt, ori_gt = calib_slot(acc_obs, ori_obs, w_idx, r_w_gt)
-    acc_gt, ori_gt = calib_slot(acc_gt, ori_gt, p_idx, r_p_gt)
-    acc_or, ori_or = calib_slot(acc_obs, ori_obs, w_idx, r_w)
-    acc_or, ori_or = calib_slot(acc_or, ori_or, p_idx, r_p)
+    acc_pred, ori_pred = acc_obs.clone(), ori_obs.clone()
+    acc_gt, ori_gt = acc_obs.clone(), ori_obs.clone()
+    acc_or, ori_or = acc_obs.clone(), ori_obs.clone()
+    all_pw, all_pp = [], []
+    n_seg_ok = 0
+    for start, end in segs:
+        x = window_features_span(
+            acc_obs[:, w_idx],
+            ori_obs[:, w_idx],
+            acc_obs[:, p_idx],
+            ori_obs[:, p_idx],
+            start,
+            end,
+            window_len,
+            stride,
+            acc_scale,
+        )
+        if x is None:
+            continue
+        pw, pp = predict_sides(pos_model, x, pos_mean, pos_std, device)
+        yw_hat, yp_hat = majority_side(pw), majority_side(pp)
+        all_pw.extend(int(v) for v in pw.tolist())
+        all_pp.extend(int(v) for v in pp.tolist())
+        n_seg_ok += int(yw_hat == y_watch and yp_hat == y_phone)
+        r_w_pred, r_p_pred = estimate_rsb_pair(
+            rot_model, x, yw_hat, yp_hat, rot_mean, rot_std, device
+        )
+        r_w_gs, r_p_gs = estimate_rsb_pair(
+            rot_model, x, y_watch, y_phone, rot_mean, rot_std, device
+        )
+        r_w_true = r_w_t[start]
+        r_p_true = r_p_t[start]
+        _calib_range(acc_pred, ori_pred, w_idx, r_w_pred, start, end)
+        _calib_range(acc_pred, ori_pred, p_idx, r_p_pred, start, end)
+        _calib_range(acc_gt, ori_gt, w_idx, r_w_gs, start, end)
+        _calib_range(acc_gt, ori_gt, p_idx, r_p_gs, start, end)
+        _calib_range(acc_or, ori_or, w_idx, r_w_true, start, end)
+        _calib_range(acc_or, ori_or, p_idx, r_p_true, start, end)
+    if not all_pw:
+        return None
+    yw_hat = majority_side(torch.tensor(all_pw, dtype=torch.long))
+    yp_hat = majority_side(torch.tensor(all_pp, dtype=torch.long))
     return {
         "none": (acc_obs, ori_obs),
         "pred_seq": (acc_pred, ori_pred),
@@ -230,6 +328,7 @@ def cascade_calibrated(
             "pred_watch": yw_hat,
             "pred_phone": yp_hat,
             "joint_ok": int(yw_hat == y_watch and yp_hat == y_phone),
+            "seg_joint_ok_rate": n_seg_ok / max(len(segs), 1),
             "seq_i": seq_i,
         },
     }

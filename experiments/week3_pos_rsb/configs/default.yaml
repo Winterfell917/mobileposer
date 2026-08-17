@@ -4,7 +4,7 @@
 #   input  a_M, R_MS
 #   R_MS = R_MB @ R_BS   (independent R_BS per device)
 #   a_M  unchanged
-#   R_BS constant for the whole sequence
+#   R_BS constant inside one window; may change across the sequence
 #   network does NOT see R_BS; this step predicts watch/phone side only.
 #
 # Later steps: Pred slot → R_SB (step2); calib R_MB → MobilePoser pose (step3).
@@ -30,7 +30,7 @@ data:
   acc_scale: 30.0
   input_dim: 24
   offset_range_deg: 45.0
-  offset_per: sequence
+  offset_per: window
   amass_subsets:
     - CMU
     - ACCAD

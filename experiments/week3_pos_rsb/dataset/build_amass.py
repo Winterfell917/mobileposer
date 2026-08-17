@@ -3,7 +3,7 @@
 Build AMASS index + norm stats for position classification under unknown R_BS.
 
 Does NOT write expanded windows (disk-friendly). Training injects
-R_MS = R_MB @ R_BS online; a_M unchanged; R_BS constant per (seq, combo).
+R_MS = R_MB @ R_BS online; a_M unchanged; R_BS constant per window.
 
 Usage (repo root):
   python experiments/week3_pos_rsb/dataset/build_amass.py \\
@@ -79,7 +79,7 @@ def main():
             "val_ids": sorted(val_ids),
             "protocol": (
                 "R_MS=R_MB@R_BS, a_M unchanged, R_BS unknown, "
-                "sequence-constant per combo"
+                "window-constant (independent across windows)"
             ),
         },
         out_dir / "amass_index.pt",
@@ -87,7 +87,7 @@ def main():
     torch.save(
         {
             **stats,
-            "protocol": "a_M+R_MS 24d, unknown seq-level R_BS",
+            "protocol": "a_M+R_MS 24d, unknown window-level R_BS",
             "input_dim": 24,
         },
         out_dir / "norm_stats.pt",

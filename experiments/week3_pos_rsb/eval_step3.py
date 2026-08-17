@@ -6,7 +6,7 @@ Week3 step 3: cascade R_SB → R_MB → MobilePoser pose.
 
 Conditions (lower is better):
   none      — feed uncalibrated R_MS (R_MS → pose baseline)
-  pred_seq  — step1 majority slot → Week2 dual R_SB → calib → pose
+  pred_seq  — per-segment majority slot → Week2 dual R_SB → calib → pose
   gt_slot   — oracle position into Week2 (Week2-learned upper bound)
   oracle    — perfect R_SB
 
@@ -274,9 +274,10 @@ def main():
 
     out: Dict[str, Any] = {
         "protocol": (
-            "Cascade step1 Pred-seq slot → Week2 dual R_SB → "
+            "Cascade step1 per-segment Pred slot → Week2 dual R_SB → "
             "R_MB=R_MS@R_SB^T, a_M unchanged → MobilePoser [watch, phone, Head]. "
-            "None=R_MS→pose; pred_seq=cascade; gt_slot=oracle position; oracle=perfect R_SB."
+            "R_BS window-constant (piecewise). None=R_MS→pose; pred_seq=cascade; "
+            "gt_slot=oracle position; oracle=perfect R_SB."
         ),
         "pos_checkpoint": str(pos_ckpt),
         "rot_checkpoint": str(rot_ckpt),

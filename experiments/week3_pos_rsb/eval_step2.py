@@ -8,7 +8,7 @@ Reuse trained Week2 RotExtrinsicDualNet. Slots come from:
   - GT slot:     oracle position (Week2 upper bound under this protocol)
   - None:        identity R_SB
 
-Protocol matches step 1: R_MS = R_MB @ R_BS (seq-constant), a_M unchanged.
+Protocol matches step 1: R_MS = R_MB @ R_BS (window-constant), a_M unchanged.
 
 Usage (repo root):
   python experiments/week3_pos_rsb/eval_step2.py \
@@ -382,7 +382,7 @@ def main():
     out: Dict[str, Any] = {
         "protocol": (
             "Cascade: step1 Pred slot → Week2 dual R_SB. "
-            "R_MS=R_MB@R_BS seq-constant, a_M unchanged. "
+            "R_MS=R_MB@R_BS window-constant, a_M unchanged. "
             "None=I; pred_window=step1 per window; pred_seq=majority slot; "
             "gt_slot=oracle position into Week2; oracle R_SB=0°."
         ),

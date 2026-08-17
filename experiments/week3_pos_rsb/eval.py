@@ -550,7 +550,7 @@ def main():
 
     protocol = (
         "Input a_M+R_MS; R_MS=R_MB@R_BS independent per device; "
-        "a_M unchanged; R_BS unknown / sequence-constant"
+        "a_M unchanged; R_BS unknown / window-constant"
     )
     all_metrics: Dict[str, Any] = {"protocol": protocol}
     table_rows: List[Dict[str, Any]] = []

@@ -82,7 +82,7 @@ def main():
     print(
         f"[week3 step1] train_windows={len(train_loader.dataset)} "
         f"val_windows={len(val_loader.dataset)} "
-        f"input=a_M+R_MS (24)  R_BS unknown / seq-constant"
+        f"input=a_M+R_MS (24)  R_BS unknown / window-constant"
     )
 
     model = PosClassifier(
