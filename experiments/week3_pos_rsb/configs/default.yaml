@@ -29,7 +29,11 @@ data:
   test_stride: 15
   acc_scale: 30.0
   input_dim: 24
-  offset_range_deg: 45.0
+  # XYZ Euler, each axis Uniform[offset_euler_lo_deg, offset_euler_hi_deg].
+  # Not ±range, not axis-angle magnitude. Legacy ±45: lo=-45, hi=45.
+  offset_range_deg: 180.0
+  offset_euler_lo_deg: 0.0
+  offset_euler_hi_deg: 180.0
   offset_per: window
   amass_subsets:
     - CMU

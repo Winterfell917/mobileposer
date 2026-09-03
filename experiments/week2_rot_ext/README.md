@@ -1,6 +1,8 @@
 # Week2 — Device Mounting Extrinsic \(R_{SB}\) Estimation
 
 > 目标：在**佩戴位置已知**时，估计设备相对对应骨骼的静态安装旋转 \(R_{SB}\)。
+>
+> **采样（2026-09-03 起）：** XYZ 欧拉每个轴均匀 \([0^\circ, 180^\circ]\)。下方实验结果表仍是 \(\pm 45^\circ\) 旧造数，重建 `amass_*.pt` 前不要混用。
 
 ## 已锁定决策
 

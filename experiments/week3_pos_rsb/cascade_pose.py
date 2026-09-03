@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections import Counter
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import torch
 
@@ -70,15 +70,74 @@ def pack_mobileposer_imu(
     ori: torch.Tensor,
     combo: List[int],
     acc_scale: float,
+    src_combo: Optional[List[int]] = None,
 ) -> torch.Tensor:
-    """[T, n, 3] / [T, n, 3, 3] → [T, 60] with unused slots zeroed."""
+    """[T, n, 3] / [T, n, 3, 3] → [T, 60] with unused slots zeroed.
+
+    Copies device ``src_combo[i]`` into pose-net slot ``combo[i]``.
+    Default ``src_combo is combo`` (anatomical GT packing).
+    """
     t_len = acc.shape[0]
     a = torch.zeros(t_len, 5, 3, dtype=acc.dtype)
     r = torch.zeros(t_len, 5, 3, 3, dtype=ori.dtype)
-    for s in combo:
-        a[:, s] = acc[:, s] / acc_scale
-        r[:, s] = ori[:, s]
+    srcs = combo if src_combo is None else src_combo
+    if len(srcs) != len(combo):
+        raise ValueError("src_combo and combo must have the same length")
+    for dst, src in zip(combo, srcs):
+        a[:, dst] = acc[:, src] / acc_scale
+        r[:, dst] = ori[:, src]
     return torch.cat([a.flatten(1), r.flatten(1)], dim=1)
+
+
+def pack_mobileposer_pred_slots(
+    acc: torch.Tensor,
+    ori: torch.Tensor,
+    src_watch: int,
+    src_phone: int,
+    dst_watch: torch.Tensor,
+    dst_phone: torch.Tensor,
+    acc_scale: float,
+) -> torch.Tensor:
+    """Scatter calibrated watch/phone IMU into predicted MobilePoser slots.
+
+    ``dst_watch`` / ``dst_phone`` are per-frame absolute slots (0/1 and 2/3).
+    Inject/calib stay on anatomical ``src_*``; only the pose-net packing
+    remaps. Head (4) is always copied from the Head IMU channel.
+    """
+    t_len = acc.shape[0]
+    a = torch.zeros(t_len, 5, 3, dtype=acc.dtype, device=acc.device)
+    r = torch.zeros(t_len, 5, 3, 3, dtype=ori.dtype, device=ori.device)
+    t = torch.arange(t_len, device=acc.device)
+    dw = dst_watch.to(device=acc.device, dtype=torch.long)
+    dp = dst_phone.to(device=acc.device, dtype=torch.long)
+    a[t, dw] = acc[:, src_watch] / acc_scale
+    r[t, dw] = ori[:, src_watch]
+    a[t, dp] = acc[:, src_phone] / acc_scale
+    r[t, dp] = ori[:, src_phone]
+    a[:, HEAD] = acc[:, HEAD] / acc_scale
+    r[:, HEAD] = ori[:, HEAD]
+    return torch.cat([a.flatten(1), r.flatten(1)], dim=1)
+
+
+def pack_condition_imu(
+    acc: torch.Tensor,
+    ori: torch.Tensor,
+    *,
+    name: str,
+    w_idx: int,
+    p_idx: int,
+    acc_scale: float,
+    dst_watch: Optional[torch.Tensor] = None,
+    dst_phone: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    """Pred-seq packs into predicted slots; None / GT-slot / Oracle use GT slots."""
+    if name == "pred_seq":
+        if dst_watch is None or dst_phone is None:
+            raise ValueError("pred_seq packing requires dst_watch/dst_phone")
+        return pack_mobileposer_pred_slots(
+            acc, ori, w_idx, p_idx, dst_watch, dst_phone, acc_scale
+        )
+    return pack_mobileposer_imu(acc, ori, [w_idx, p_idx, HEAD], acc_scale)
 
 
 def window_features(
@@ -159,10 +218,16 @@ def inject_combo(
     p_idx: int,
     offset_range: float,
     seed: int,
+    lo_deg: float = 0.0,
+    hi_deg: float | None = None,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     gen = torch.Generator().manual_seed(int(seed))
-    r_w = sample_random_offsets(1, offset_range, generator=gen)[0]
-    r_p = sample_random_offsets(1, offset_range, generator=gen)[0]
+    r_w = sample_random_offsets(
+        1, offset_range, generator=gen, lo_deg=lo_deg, hi_deg=hi_deg
+    )[0]
+    r_p = sample_random_offsets(
+        1, offset_range, generator=gen, lo_deg=lo_deg, hi_deg=hi_deg
+    )[0]
     acc_obs, ori_obs = apply_slot_offset(acc_all, ori_all, w_idx, r_w)
     acc_obs, ori_obs = apply_slot_offset(acc_obs, ori_obs, p_idx, r_p)
     return acc_obs, ori_obs, r_w, r_p
@@ -186,6 +251,8 @@ def inject_piecewise(
     offset_range: float,
     seed: int,
     window_len: int,
+    lo_deg: float = 0.0,
+    hi_deg: float | None = None,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """R_BS constant inside each window_len segment, independent across segments."""
     t_len = acc_all.shape[0]
@@ -198,8 +265,12 @@ def inject_piecewise(
     r_p_t[:] = eye
     for start, end in iter_segments(t_len, window_len):
         gen = torch.Generator().manual_seed(int(seed) + 100003 * int(start))
-        r_w = sample_random_offsets(1, offset_range, generator=gen)[0]
-        r_p = sample_random_offsets(1, offset_range, generator=gen)[0]
+        r_w = sample_random_offsets(
+            1, offset_range, generator=gen, lo_deg=lo_deg, hi_deg=hi_deg
+        )[0]
+        r_p = sample_random_offsets(
+            1, offset_range, generator=gen, lo_deg=lo_deg, hi_deg=hi_deg
+        )[0]
         sl = slice(start, end)
         acc_obs[sl, w_idx], ori_obs[sl, w_idx] = apply_mount_offset(
             acc_all[sl, w_idx], ori_all[sl, w_idx], r_w
@@ -262,15 +333,20 @@ def cascade_calibrated(
     rot_mean: torch.Tensor,
     rot_std: torch.Tensor,
     device: torch.device,
-) -> Optional[Dict[str, Tuple[torch.Tensor, torch.Tensor]]]:
+    lo_deg: float = 0.0,
+    hi_deg: float | None = None,
+) -> Optional[Dict[str, Any]]:
     """Return acc/ori for none / pred_seq / gt_slot / oracle.
 
     R_BS is piecewise-constant on window_len segments. Pred-seq / GT-slot
-    aggregate only *inside* a segment (majority slot + mean R_SB), which
-    is valid because the true mount is constant there.
+    aggregate only *inside* a segment (majority slot + mean R_SB).
+    Inject and calib stay on anatomical ``w_idx``/``p_idx``. Per-segment
+    predicted slots are stored in ``dst_watch``/``dst_phone`` so Pred-seq
+    can be packed into MobilePoser predicted channels.
     """
     acc_obs, ori_obs, r_w_t, r_p_t = inject_piecewise(
-        acc_all, ori_all, w_idx, p_idx, offset_range, seed, window_len
+        acc_all, ori_all, w_idx, p_idx, offset_range, seed, window_len,
+        lo_deg=lo_deg, hi_deg=hi_deg,
     )
     segs = iter_segments(acc_obs.shape[0], window_len)
     if not segs:
@@ -278,6 +354,9 @@ def cascade_calibrated(
     acc_pred, ori_pred = acc_obs.clone(), ori_obs.clone()
     acc_gt, ori_gt = acc_obs.clone(), ori_obs.clone()
     acc_or, ori_or = acc_obs.clone(), ori_obs.clone()
+    t_len = acc_obs.shape[0]
+    dst_watch = torch.full((t_len,), int(w_idx), dtype=torch.long)
+    dst_phone = torch.full((t_len,), int(p_idx), dtype=torch.long)
     all_pw, all_pp = [], []
     n_seg_ok = 0
     for start, end in segs:
@@ -296,6 +375,9 @@ def cascade_calibrated(
             continue
         pw, pp = predict_sides(pos_model, x, pos_mean, pos_std, device)
         yw_hat, yp_hat = majority_side(pw), majority_side(pp)
+        dw_hat, dp_hat = sides_to_abs_slots(int(yw_hat), int(yp_hat))
+        dst_watch[start:end] = int(dw_hat)
+        dst_phone[start:end] = int(dp_hat)
         all_pw.extend(int(v) for v in pw.tolist())
         all_pp.extend(int(v) for v in pp.tolist())
         n_seg_ok += int(yw_hat == y_watch and yp_hat == y_phone)
@@ -322,6 +404,8 @@ def cascade_calibrated(
         "pred_seq": (acc_pred, ori_pred),
         "gt_slot": (acc_gt, ori_gt),
         "oracle": (acc_or, ori_or),
+        "dst_watch": dst_watch,
+        "dst_phone": dst_phone,
         "meta": {
             "y_watch": y_watch,
             "y_phone": y_phone,

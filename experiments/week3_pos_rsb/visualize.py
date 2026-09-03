@@ -46,6 +46,7 @@ from dataset.pos_dataset import (  # noqa: E402
     build_imuposer_index,
     load_amass_rms_pack,
     load_imuposer_sequences,
+    offset_kwargs_from_cfg,
 )
 from models import PosClassifier  # noqa: E402
 
@@ -455,7 +456,7 @@ def main():
             index,
             window_len=cfg["data"]["window_len"],
             acc_scale=cfg["data"]["acc_scale"],
-            offset_range_deg=cfg["data"]["offset_range_deg"],
+            **offset_kwargs_from_cfg(cfg),
             seed=cfg["experiment"]["seed"],
             mean=stats["mean"],
             std=stats["std"],
@@ -476,7 +477,7 @@ def main():
             index,
             window_len=cfg["data"]["window_len"],
             acc_scale=cfg["data"]["acc_scale"],
-            offset_range_deg=cfg["data"]["offset_range_deg"],
+            **offset_kwargs_from_cfg(cfg),
             seed=cfg["experiment"]["seed"],
             y_watch=watch_side,
             y_phone=phone_side,

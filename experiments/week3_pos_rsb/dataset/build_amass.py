@@ -21,7 +21,7 @@ _EXP_DIR = Path(__file__).resolve().parents[1]
 if str(_EXP_DIR) not in sys.path:
     sys.path.insert(0, str(_EXP_DIR))
 
-from dataset import load_config, resolve_path, set_seed  # noqa: E402
+from dataset import load_config, offset_euler_bounds, resolve_path, set_seed  # noqa: E402
 from dataset.pos_dataset import (  # noqa: E402
     build_amass_index,
     compute_norm_stats,
@@ -62,6 +62,7 @@ def main():
         f"train_windows={train_index.shape[0]} val_windows={val_index.shape[0]}"
     )
     print("computing norm stats on train windows (online inject)...")
+    lo_deg, hi_deg = offset_euler_bounds(cfg["data"])
     stats = compute_norm_stats(
         sequences,
         train_index,
@@ -69,6 +70,8 @@ def main():
         acc_scale=cfg["data"]["acc_scale"],
         offset_range_deg=cfg["data"]["offset_range_deg"],
         seed=cfg["experiment"]["seed"],
+        lo_deg=lo_deg,
+        hi_deg=hi_deg,
     )
     torch.save(
         {
@@ -77,9 +80,12 @@ def main():
             "train_index": train_index,
             "val_index": val_index,
             "val_ids": sorted(val_ids),
+            "offset_euler_lo_deg": lo_deg,
+            "offset_euler_hi_deg": hi_deg,
             "protocol": (
                 "R_MS=R_MB@R_BS, a_M unchanged, R_BS unknown, "
-                "window-constant (independent across windows)"
+                "window-constant (independent across windows), "
+                f"XYZ Euler per axis Uniform[{lo_deg}, {hi_deg}] deg"
             ),
         },
         out_dir / "amass_index.pt",

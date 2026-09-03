@@ -33,6 +33,7 @@ from dataset import (  # noqa: E402
     combo_to_indices,
     load_config,
     make_device_features,
+    offset_euler_bounds,
     resolve_path,
     rotation_matrix_to_r6d,
     sample_random_offsets,
@@ -69,6 +70,8 @@ def process_file(
     offset_per: str,
     val_ids: set,
     gen: torch.Generator,
+    lo_deg: float = 0.0,
+    hi_deg: float | None = None,
 ) -> Dict[str, Dict[str, list]]:
     data = torch.load(path, map_location="cpu")
     accs, oris = data["acc"], data["ori"]
@@ -107,8 +110,12 @@ def process_file(
                 op_full = ori_all[:, p_idx]
 
                 if offset_per == "sequence":
-                    r_w = sample_random_offsets(1, offset_range_deg, generator=gen)[0]
-                    r_p = sample_random_offsets(1, offset_range_deg, generator=gen)[0]
+                    r_w = sample_random_offsets(
+                        1, offset_range_deg, generator=gen, lo_deg=lo_deg, hi_deg=hi_deg
+                    )[0]
+                    r_p = sample_random_offsets(
+                        1, offset_range_deg, generator=gen, lo_deg=lo_deg, hi_deg=hi_deg
+                    )[0]
                     aw_o, ow_o = apply_mount_offset(aw_full, ow_full, r_w)
                     ap_o, op_o = apply_mount_offset(ap_full, op_full, r_p)
                     feat_w = make_device_features(aw_o, ow_o, acc_scale)
@@ -137,8 +144,12 @@ def process_file(
                         )
                 else:
                     for start in range(0, t_len - window_len + 1, stride):
-                        r_w = sample_random_offsets(1, offset_range_deg, generator=gen)[0]
-                        r_p = sample_random_offsets(1, offset_range_deg, generator=gen)[0]
+                        r_w = sample_random_offsets(
+                        1, offset_range_deg, generator=gen, lo_deg=lo_deg, hi_deg=hi_deg
+                    )[0]
+                        r_p = sample_random_offsets(
+                        1, offset_range_deg, generator=gen, lo_deg=lo_deg, hi_deg=hi_deg
+                    )[0]
                         aw = aw_full[start : start + window_len]
                         ow = ow_full[start : start + window_len]
                         ap = ap_full[start : start + window_len]
@@ -251,6 +262,8 @@ def main():
             offset_per=str(cfg["data"]["offset_per"]),
             val_ids=local_val,
             gen=gen,
+            lo_deg=offset_euler_bounds(cfg["data"])[0],
+            hi_deg=offset_euler_bounds(cfg["data"])[1],
         )
         for k in keys:
             train_b[k].extend(part["train"][k])

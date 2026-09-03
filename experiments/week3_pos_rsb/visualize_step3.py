@@ -24,13 +24,12 @@ if str(_EXP_DIR) not in sys.path:
     sys.path.insert(0, str(_EXP_DIR))
 
 from cascade_pose import (  # noqa: E402
-    HEAD,
     cascade_calibrated,
     load_imuposer_pose_one,
-    pack_mobileposer_imu,
+    pack_condition_imu,
     predict_pose_sequence,
 )
-from dataset import load_config, load_norm_stats, resolve_path, set_seed  # noqa: E402
+from dataset import load_config, load_norm_stats, offset_euler_bounds, resolve_path, set_seed  # noqa: E402
 from dataset.pos_dataset import amass_seed_offset  # noqa: E402
 from models import PosClassifier, RotExtrinsicDualNet  # noqa: E402
 
@@ -295,6 +294,7 @@ def main():
     stride = int(cfg["data"]["test_stride"])
     acc_scale = float(cfg["data"]["acc_scale"])
     offset_range = float(cfg["data"]["offset_range_deg"])
+    lo_deg, hi_deg = offset_euler_bounds(cfg["data"])
     seed = int(cfg["experiment"]["seed"])
     seq_ids = [int(x) for x in args.seq_ids.split(",") if x.strip() != ""]
 
@@ -326,16 +326,26 @@ def main():
             rot_mean=rot_mean,
             rot_std=rot_std,
             device=device,
+            lo_deg=lo_deg,
+            hi_deg=hi_deg,
         )
         if pack is None:
             print(f"[warn] seq {sid} cascade failed")
             continue
-        slots = [w_idx, p_idx, HEAD]
         meshes = {}
         meshes["gt"] = fk_mesh(body_model, pose_gt.float(), tran_gt.float())
         for key in ("none", "pred_seq"):
             acc_c, ori_c = pack[key]
-            imu = pack_mobileposer_imu(acc_c, ori_c, slots, acc_scale)
+            imu = pack_condition_imu(
+                acc_c,
+                ori_c,
+                name=key,
+                w_idx=w_idx,
+                p_idx=p_idx,
+                acc_scale=acc_scale,
+                dst_watch=pack["dst_watch"],
+                dst_phone=pack["dst_phone"],
+            )
             pose_p, tran_p = predict_pose_sequence(pose_net, imu)
             meshes[key] = fk_mesh(body_model, pose_p, tran_p)
         meta = pack["meta"]

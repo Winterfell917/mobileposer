@@ -115,14 +115,39 @@ def _euler_xyz_to_matrix(euler: torch.Tensor) -> torch.Tensor:
     return r
 
 
+def offset_euler_bounds(data_cfg: Dict[str, Any]) -> Tuple[float, float]:
+    """XYZ Euler per-axis Uniform[lo, hi] degrees from config.
+
+    Default is ``[0, offset_range_deg]``. Set ``offset_euler_lo_deg`` /
+    ``offset_euler_hi_deg`` to override (legacy ±45: lo=-45, hi=45).
+    """
+    rng = float(data_cfg["offset_range_deg"])
+    lo = data_cfg.get("offset_euler_lo_deg")
+    hi = data_cfg.get("offset_euler_hi_deg")
+    return (
+        float(0.0 if lo is None else lo),
+        float(rng if hi is None else hi),
+    )
+
+
 def sample_random_offsets(
     n: int,
     offset_range_deg: float,
     generator: torch.Generator | None = None,
     device: torch.device | None = None,
+    lo_deg: float | None = None,
+    hi_deg: float | None = None,
 ) -> torch.Tensor:
-    lo = -offset_range_deg * np.pi / 180.0
-    hi = offset_range_deg * np.pi / 180.0
+    """XYZ Euler, each axis Uniform[lo_deg, hi_deg] degrees → [n, 3, 3].
+
+    Default interval is ``[0, offset_range_deg]`` (not ±range).
+    """
+    if lo_deg is None:
+        lo_deg = 0.0
+    if hi_deg is None:
+        hi_deg = float(offset_range_deg)
+    lo = float(lo_deg) * np.pi / 180.0
+    hi = float(hi_deg) * np.pi / 180.0
     euler = torch.empty(n, 3, device=device)
     euler.uniform_(lo, hi, generator=generator)
     return _euler_xyz_to_matrix(euler)
@@ -163,9 +188,15 @@ def inject_device_pair(
     phone_idx: int,
     offset_range_deg: float,
     generator: torch.Generator,
+    lo_deg: float | None = None,
+    hi_deg: float | None = None,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    r_w = sample_random_offsets(1, offset_range_deg, generator=generator)[0]
-    r_p = sample_random_offsets(1, offset_range_deg, generator=generator)[0]
+    r_w = sample_random_offsets(
+        1, offset_range_deg, generator=generator, lo_deg=lo_deg, hi_deg=hi_deg
+    )[0]
+    r_p = sample_random_offsets(
+        1, offset_range_deg, generator=generator, lo_deg=lo_deg, hi_deg=hi_deg
+    )[0]
     acc_w, ori_w = apply_mount_offset(acc[:, watch_idx], ori[:, watch_idx], r_w)
     acc_p, ori_p = apply_mount_offset(acc[:, phone_idx], ori[:, phone_idx], r_p)
     return acc_w, ori_w, acc_p, ori_p, r_w, r_p

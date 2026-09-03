@@ -30,8 +30,11 @@ data:
   # per-device: acc(3) + ori_flat(9) = 12; + slot one-hot(4) at model time
   feat_dim: 12
   n_slots: 4
-  # random mount rotation magnitude (degrees), Euler XYZ in [-range, range]
-  offset_range_deg: 45.0
+  # XYZ Euler, each axis Uniform[offset_euler_lo_deg, offset_euler_hi_deg].
+  # Not ±range, not axis-angle magnitude. Legacy ±45: lo=-45, hi=45.
+  offset_range_deg: 180.0
+  offset_euler_lo_deg: 0.0
+  offset_euler_hi_deg: 180.0
   # sample a new R_SB for every window (more diversity) | once per sequence
   offset_per: window
   # no drift in Week2 main track

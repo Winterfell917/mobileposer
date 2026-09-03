@@ -31,6 +31,7 @@ from dataset import (  # noqa: E402
     apply_mount_offset,
     load_config,
     make_device_features,
+    offset_euler_bounds,
     resolve_path,
     rotation_matrix_to_r6d,
     sample_random_offsets,
@@ -69,6 +70,8 @@ def process_file(
     train_slots: List[int],
     val_ids: set,
     gen: torch.Generator,
+    lo_deg: float = 0.0,
+    hi_deg: float | None = None,
 ) -> Dict[str, Dict[str, list]]:
     data = torch.load(path, map_location="cpu")
     accs, oris = data["acc"], data["ori"]
@@ -107,7 +110,9 @@ def process_file(
 
             r_seq = None
             if offset_per == "sequence":
-                r_seq = sample_random_offsets(1, offset_range_deg, generator=gen)[0]
+                r_seq = sample_random_offsets(
+                    1, offset_range_deg, generator=gen, lo_deg=lo_deg, hi_deg=hi_deg
+                )[0]
 
             # Build full-length observed stream if sequence-level offset
             if r_seq is not None:
@@ -131,7 +136,9 @@ def process_file(
             else:
                 # per-window offset
                 for start in range(0, t_len - window_len + 1, stride):
-                    r_sb = sample_random_offsets(1, offset_range_deg, generator=gen)[0]
+                    r_sb = sample_random_offsets(
+                        1, offset_range_deg, generator=gen, lo_deg=lo_deg, hi_deg=hi_deg
+                    )[0]
                     acc_w = acc_bone[start : start + window_len]
                     ori_w = ori_bone[start : start + window_len]
                     acc_obs, ori_obs = apply_mount_offset(acc_w, ori_w, r_sb)
@@ -206,7 +213,8 @@ def main():
     print(
         f"AMASS files={len(files)}, sequences={total_seq}, "
         f"val_seqs={len(val_ids_global)}, "
-        f"offset_range={cfg['data']['offset_range_deg']}deg, "
+        f"offset_range=[{cfg['data'].get('offset_euler_lo_deg', 0)},"
+        f"{cfg['data'].get('offset_euler_hi_deg', cfg['data']['offset_range_deg'])}]deg, "
         f"offset_per={cfg['data']['offset_per']}"
     )
 
@@ -227,6 +235,8 @@ def main():
             train_slots=train_slots,
             val_ids=local_val,
             gen=gen,
+            lo_deg=offset_euler_bounds(cfg["data"])[0],
+            hi_deg=offset_euler_bounds(cfg["data"])[1],
         )
         for k in train_b:
             train_b[k].extend(part["train"][k])
@@ -256,6 +266,10 @@ def main():
             "acc_channels": [0, 1, 2],
             "feat_dim": 12,
             "offset_range_deg": cfg["data"]["offset_range_deg"],
+            "offset_euler_lo_deg": cfg["data"].get("offset_euler_lo_deg", 0.0),
+            "offset_euler_hi_deg": cfg["data"].get(
+                "offset_euler_hi_deg", cfg["data"]["offset_range_deg"]
+            ),
             "convention": "R_obs = R_bone @ R_SB; a_obs = R_SB^T @ a_bone",
         },
         out_dir / "norm_stats.pt",

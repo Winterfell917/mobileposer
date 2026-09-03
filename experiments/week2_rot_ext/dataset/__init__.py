@@ -114,19 +114,39 @@ def _euler_xyz_to_matrix(euler: torch.Tensor) -> torch.Tensor:
     return r
 
 
+def offset_euler_bounds(data_cfg: Dict[str, Any]) -> Tuple[float, float]:
+    """XYZ Euler per-axis Uniform[lo, hi] degrees from config.
+
+    Default is ``[0, offset_range_deg]``. Legacy ±45: lo=-45, hi=45.
+    """
+    rng = float(data_cfg["offset_range_deg"])
+    lo = data_cfg.get("offset_euler_lo_deg")
+    hi = data_cfg.get("offset_euler_hi_deg")
+    return (
+        float(0.0 if lo is None else lo),
+        float(rng if hi is None else hi),
+    )
+
+
 def sample_random_offsets(
     n: int,
     offset_range_deg: float,
     generator: torch.Generator | None = None,
     device: torch.device | None = None,
+    lo_deg: float | None = None,
+    hi_deg: float | None = None,
 ) -> torch.Tensor:
+    """XYZ Euler, each axis Uniform[lo_deg, hi_deg] degrees → [n, 3, 3].
+
+    Default interval is ``[0, offset_range_deg]`` (not ±range).
+    Legacy ±45: ``lo_deg=-45, hi_deg=45``.
     """
-    Sample n random mount rotations (SO(3)), TIC-like:
-    Euler angles ~ Uniform([-range, range]) on each axis.
-    Returns: [n, 3, 3]
-    """
-    lo = -offset_range_deg * np.pi / 180.0
-    hi = offset_range_deg * np.pi / 180.0
+    if lo_deg is None:
+        lo_deg = 0.0
+    if hi_deg is None:
+        hi_deg = float(offset_range_deg)
+    lo = float(lo_deg) * np.pi / 180.0
+    hi = float(hi_deg) * np.pi / 180.0
     euler = torch.empty(n, 3, device=device)
     euler.uniform_(lo, hi, generator=generator)
     return _euler_xyz_to_matrix(euler)

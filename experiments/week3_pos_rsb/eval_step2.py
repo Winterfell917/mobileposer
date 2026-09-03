@@ -46,6 +46,7 @@ from dataset.pos_dataset import (  # noqa: E402
     build_imuposer_index,
     load_amass_rms_pack,
     load_imuposer_sequences,
+    offset_kwargs_from_cfg,
 )
 from models import PosClassifier, RotExtrinsicDualNet  # noqa: E402
 
@@ -389,6 +390,8 @@ def main():
         "pos_checkpoint": str(pos_ckpt),
         "rot_checkpoint": str(rot_ckpt),
         "offset_range_deg": cfg["data"]["offset_range_deg"],
+        "offset_euler_lo_deg": cfg["data"].get("offset_euler_lo_deg", 0.0),
+        "offset_euler_hi_deg": cfg["data"].get("offset_euler_hi_deg", cfg["data"]["offset_range_deg"]),
         "window_len": cfg["data"]["window_len"],
     }
 
@@ -399,7 +402,7 @@ def main():
             pack["val_index"],
             window_len=cfg["data"]["window_len"],
             acc_scale=cfg["data"]["acc_scale"],
-            offset_range_deg=cfg["data"]["offset_range_deg"],
+            **offset_kwargs_from_cfg(cfg),
             seed=cfg["experiment"]["seed"],
         )
         print(f"[AMASS val] windows={len(ds)}")
@@ -434,7 +437,7 @@ def main():
                 imu_index,
                 window_len=cfg["data"]["window_len"],
                 acc_scale=cfg["data"]["acc_scale"],
-                offset_range_deg=cfg["data"]["offset_range_deg"],
+                **offset_kwargs_from_cfg(cfg),
                 seed=cfg["experiment"]["seed"],
                 y_watch=yw,
                 y_phone=yp,

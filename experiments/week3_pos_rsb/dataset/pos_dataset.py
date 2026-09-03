@@ -17,6 +17,7 @@ from dataset import (
     apply_mount_offset,
     combo_to_indices,
     make_rms_features,
+    offset_euler_bounds,
     resolve_path,
     sample_random_offsets,
 )
@@ -49,12 +50,18 @@ def _inject_pair(
     offset_range_deg: float,
     acc_scale: float,
     seed: int,
+    lo_deg: float = 0.0,
+    hi_deg: float | None = None,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Return (x[T,24], R_BS_watch[3,3], R_BS_phone[3,3]). Seed is window-level."""
     w_idx, p_idx = combo_to_indices(int(y_watch), int(y_phone))
     gen = torch.Generator().manual_seed(int(seed))
-    r_w = sample_random_offsets(1, offset_range_deg, generator=gen)[0]
-    r_p = sample_random_offsets(1, offset_range_deg, generator=gen)[0]
+    r_w = sample_random_offsets(
+        1, offset_range_deg, generator=gen, lo_deg=lo_deg, hi_deg=hi_deg
+    )[0]
+    r_p = sample_random_offsets(
+        1, offset_range_deg, generator=gen, lo_deg=lo_deg, hi_deg=hi_deg
+    )[0]
     sl = slice(int(start), int(start) + int(window_len))
     acc_w, ori_w = apply_mount_offset(acc[sl, w_idx], ori[sl, w_idx], r_w)
     acc_p, ori_p = apply_mount_offset(acc[sl, p_idx], ori[sl, p_idx], r_p)
@@ -72,10 +79,12 @@ def _inject_window(
     offset_range_deg: float,
     acc_scale: float,
     seed: int,
+    lo_deg: float = 0.0,
+    hi_deg: float | None = None,
 ) -> torch.Tensor:
     x, _, _ = _inject_pair(
         acc, ori, start, window_len, y_watch, y_phone,
-        offset_range_deg, acc_scale, seed,
+        offset_range_deg, acc_scale, seed, lo_deg, hi_deg,
     )
     return x
 
@@ -94,12 +103,16 @@ class AmassRmsPosDataset(Dataset):
         seed: int,
         mean: Optional[torch.Tensor] = None,
         std: Optional[torch.Tensor] = None,
+        lo_deg: float = 0.0,
+        hi_deg: float | None = None,
     ):
         self.sequences = sequences
         self.index = index.long()
         self.window_len = int(window_len)
         self.acc_scale = float(acc_scale)
         self.offset_range_deg = float(offset_range_deg)
+        self.offset_lo_deg = float(lo_deg)
+        self.offset_hi_deg = None if hi_deg is None else float(hi_deg)
         self.seed = int(seed)
         self.mean = mean.float().view(1, -1) if mean is not None else None
         self.std = std.float().view(1, -1).clamp_min(1e-6) if std is not None else None
@@ -121,6 +134,8 @@ class AmassRmsPosDataset(Dataset):
             self.offset_range_deg,
             self.acc_scale,
             seed,
+            self.offset_lo_deg,
+            self.offset_hi_deg,
         )
         if self.mean is not None:
             x = (x - self.mean) / self.std
@@ -143,12 +158,16 @@ class ImuposerRmsPosDataset(Dataset):
         y_phone: int,
         mean: torch.Tensor,
         std: torch.Tensor,
+        lo_deg: float = 0.0,
+        hi_deg: float | None = None,
     ):
         self.sequences = sequences
         self.index = index.long()  # [N, 2] seq, start
         self.window_len = int(window_len)
         self.acc_scale = float(acc_scale)
         self.offset_range_deg = float(offset_range_deg)
+        self.offset_lo_deg = float(lo_deg)
+        self.offset_hi_deg = None if hi_deg is None else float(hi_deg)
         self.seed = int(seed)
         self.y_watch = int(y_watch)
         self.y_phone = int(y_phone)
@@ -172,6 +191,8 @@ class ImuposerRmsPosDataset(Dataset):
             self.offset_range_deg,
             self.acc_scale,
             seed,
+            self.offset_lo_deg,
+            self.offset_hi_deg,
         )
         x = (x - self.mean) / self.std
         return (
@@ -196,12 +217,16 @@ class AmassRmsCascadeDataset(Dataset):
         acc_scale: float,
         offset_range_deg: float,
         seed: int,
+        lo_deg: float = 0.0,
+        hi_deg: float | None = None,
     ):
         self.sequences = sequences
         self.index = index.long()
         self.window_len = int(window_len)
         self.acc_scale = float(acc_scale)
         self.offset_range_deg = float(offset_range_deg)
+        self.offset_lo_deg = float(lo_deg)
+        self.offset_hi_deg = None if hi_deg is None else float(hi_deg)
         self.seed = int(seed)
 
     def __len__(self) -> int:
@@ -214,6 +239,7 @@ class AmassRmsCascadeDataset(Dataset):
         x, r_w, r_p = _inject_pair(
             acc, ori, start, self.window_len, yw, yp,
             self.offset_range_deg, self.acc_scale, seed,
+            self.offset_lo_deg, self.offset_hi_deg,
         )
         return (
             x,
@@ -240,12 +266,16 @@ class ImuposerRmsCascadeDataset(Dataset):
         seed: int,
         y_watch: int,
         y_phone: int,
+        lo_deg: float = 0.0,
+        hi_deg: float | None = None,
     ):
         self.sequences = sequences
         self.index = index.long()
         self.window_len = int(window_len)
         self.acc_scale = float(acc_scale)
         self.offset_range_deg = float(offset_range_deg)
+        self.offset_lo_deg = float(lo_deg)
+        self.offset_hi_deg = None if hi_deg is None else float(hi_deg)
         self.seed = int(seed)
         self.y_watch = int(y_watch)
         self.y_phone = int(y_phone)
@@ -260,6 +290,7 @@ class ImuposerRmsCascadeDataset(Dataset):
         x, r_w, r_p = _inject_pair(
             acc, ori, start, self.window_len, self.y_watch, self.y_phone,
             self.offset_range_deg, self.acc_scale, seed,
+            self.offset_lo_deg, self.offset_hi_deg,
         )
         return (
             x,
@@ -356,6 +387,8 @@ def compute_norm_stats(
     offset_range_deg: float,
     seed: int,
     max_windows: Optional[int] = None,
+    lo_deg: float = 0.0,
+    hi_deg: float | None = None,
 ) -> Dict[str, torch.Tensor]:
     """Streaming mean/std over train windows (optionally subsampled)."""
     n = index.shape[0]
@@ -375,7 +408,8 @@ def compute_norm_stats(
         acc, ori = sequences[seq_i]
         seed_i = amass_seed_offset(seq_i, yw, yp, seed, start)
         x = _inject_window(
-            acc, ori, start, window_len, yw, yp, offset_range_deg, acc_scale, seed_i
+            acc, ori, start, window_len, yw, yp, offset_range_deg, acc_scale, seed_i,
+            lo_deg, hi_deg,
         )
         sum_x += x.sum(dim=0)
         sum_x2 += (x * x).sum(dim=0)
@@ -387,27 +421,37 @@ def compute_norm_stats(
     return {"mean": mean, "std": var.sqrt()}
 
 
+def offset_kwargs_from_cfg(cfg: dict) -> dict:
+    lo_deg, hi_deg = offset_euler_bounds(cfg["data"])
+    return {
+        "offset_range_deg": cfg["data"]["offset_range_deg"],
+        "lo_deg": lo_deg,
+        "hi_deg": hi_deg,
+    }
+
+
 def make_amass_rms_loaders(cfg: dict, stats: Dict[str, torch.Tensor], pack: dict):
     sequences = pack["sequences"]
-    train_ds = AmassRmsPosDataset(
-        sequences,
-        pack["train_index"],
+    lo_deg, hi_deg = offset_euler_bounds(cfg["data"])
+    common = dict(
         window_len=cfg["data"]["window_len"],
         acc_scale=cfg["data"]["acc_scale"],
         offset_range_deg=cfg["data"]["offset_range_deg"],
         seed=cfg["experiment"]["seed"],
         mean=stats["mean"],
         std=stats["std"],
+        lo_deg=lo_deg,
+        hi_deg=hi_deg,
+    )
+    train_ds = AmassRmsPosDataset(
+        sequences,
+        pack["train_index"],
+        **common,
     )
     val_ds = AmassRmsPosDataset(
         sequences,
         pack["val_index"],
-        window_len=cfg["data"]["window_len"],
-        acc_scale=cfg["data"]["acc_scale"],
-        offset_range_deg=cfg["data"]["offset_range_deg"],
-        seed=cfg["experiment"]["seed"],
-        mean=stats["mean"],
-        std=stats["std"],
+        **common,
     )
     train_loader = DataLoader(
         train_ds,
