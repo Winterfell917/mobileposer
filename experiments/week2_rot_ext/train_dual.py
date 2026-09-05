@@ -90,6 +90,7 @@ def main():
         default=None,
         help="Resume from last_dual.pt (or a dual checkpoint). Appends train_log_dual.csv.",
     )
+    parser.add_argument("--device", type=str, default=None)
     args = parser.parse_args()
     cfg = load_config(resolve_path(args.config))
     set_seed(cfg["experiment"]["seed"])
@@ -109,9 +110,10 @@ def main():
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    device = torch.device(
+    device_name = args.device or (
         cfg["train"]["device"] if torch.cuda.is_available() else "cpu"
     )
+    device = torch.device(device_name)
     train_loader = make_dual_loader(
         train_pt,
         stats_pt,
