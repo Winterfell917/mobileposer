@@ -162,6 +162,40 @@ def apply_mount_offset(
     return acc.clone(), ori @ r_bs
 
 
+YAW_REF_SLOT = 0  # LW: sequence-level heading proxy, combo-independent
+
+
+def yaw_rotation_y_up(r: torch.Tensor) -> torch.Tensor:
+    """Yaw about world Y (DIP/SMPL up) from R_MB [3, 3].
+
+    Matches scipy ``Rotation.as_euler('YZX')`` with Z/X zeroed, same as
+    MobilePoser ``to_ego_yaw``. Pitch/roll (gravity) are kept.
+    """
+    yaw = torch.atan2(-r[2, 0], r[0, 0])
+    c, s = torch.cos(yaw), torch.sin(yaw)
+    y = r.new_zeros(3, 3)
+    y[0, 0] = c
+    y[0, 2] = s
+    y[1, 1] = 1.0
+    y[2, 0] = -s
+    y[2, 2] = c
+    return y
+
+
+def apply_yaw_left(
+    acc: torch.Tensor,
+    ori: torch.Tensor,
+    yaw: torch.Tensor,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Left-multiply world yaw: a' = Y^T a, R' = Y^T R.
+
+    acc: [T, 3] row vectors; ori: [T, 3, 3].
+    """
+    acc_n = acc @ yaw
+    ori_n = torch.einsum("ij,tjk->tik", yaw.transpose(0, 1), ori)
+    return acc_n, ori_n
+
+
 def make_rms_features(
     watch_acc: torch.Tensor,
     watch_ori: torch.Tensor,
@@ -179,6 +213,37 @@ def make_rms_features(
         ],
         dim=-1,
     )
+
+
+def feat_dim_for_mode(mode: str) -> int:
+    mode = (mode or "full").lower()
+    if mode == "full":
+        return 24
+    if mode == "acc":
+        return 6
+    if mode == "ori":
+        return 18
+    raise ValueError(f"unknown feat mode: {mode}")
+
+
+def select_rms_features(x: torch.Tensor, mode: str) -> torch.Tensor:
+    """Slice 24-d a_M+R_MS features. Layout: Wacc3, Wori9, Pacc3, Pori9."""
+    mode = (mode or "full").lower()
+    if mode == "full":
+        return x
+    if mode == "acc":
+        return torch.cat([x[..., 0:3], x[..., 12:15]], dim=-1)
+    if mode == "ori":
+        return torch.cat([x[..., 3:12], x[..., 15:24]], dim=-1)
+    raise ValueError(f"unknown feat mode: {mode}")
+
+
+def mask_ori_channels(x: torch.Tensor) -> torch.Tensor:
+    """Zero R_MS channels after normalize (eval-time 3.1 ablation)."""
+    y = x.clone()
+    y[..., 3:12] = 0
+    y[..., 15:24] = 0
+    return y
 
 
 def inject_device_pair(

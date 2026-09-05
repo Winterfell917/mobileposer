@@ -14,12 +14,18 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 
 from dataset import (
+    YAW_REF_SLOT,
     apply_mount_offset,
+    apply_yaw_left,
     combo_to_indices,
+    feat_dim_for_mode,
     make_rms_features,
+    mask_ori_channels,
     offset_euler_bounds,
     resolve_path,
     sample_random_offsets,
+    select_rms_features,
+    yaw_rotation_y_up,
 )
 
 
@@ -52,8 +58,15 @@ def _inject_pair(
     seed: int,
     lo_deg: float = 0.0,
     hi_deg: float | None = None,
+    yaw_align: bool = False,
+    yaw_ref_slot: int = YAW_REF_SLOT,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Return (x[T,24], R_BS_watch[3,3], R_BS_phone[3,3]). Seed is window-level."""
+    """Return (x[T,24], R_BS_watch[3,3], R_BS_phone[3,3]). Seed is window-level.
+
+    If ``yaw_align``, left-multiply the same sequence-level Y_0 (from
+    pre-inject ``R_MB[0, yaw_ref_slot]``) onto both devices *before*
+    ``R_BS``. Pitch/roll are not removed.
+    """
     w_idx, p_idx = combo_to_indices(int(y_watch), int(y_phone))
     gen = torch.Generator().manual_seed(int(seed))
     r_w = sample_random_offsets(
@@ -63,8 +76,16 @@ def _inject_pair(
         1, offset_range_deg, generator=gen, lo_deg=lo_deg, hi_deg=hi_deg
     )[0]
     sl = slice(int(start), int(start) + int(window_len))
-    acc_w, ori_w = apply_mount_offset(acc[sl, w_idx], ori[sl, w_idx], r_w)
-    acc_p, ori_p = apply_mount_offset(acc[sl, p_idx], ori[sl, p_idx], r_p)
+    acc_w = acc[sl, w_idx]
+    ori_w = ori[sl, w_idx]
+    acc_p = acc[sl, p_idx]
+    ori_p = ori[sl, p_idx]
+    if yaw_align:
+        yaw = yaw_rotation_y_up(ori[0, int(yaw_ref_slot)])
+        acc_w, ori_w = apply_yaw_left(acc_w, ori_w, yaw)
+        acc_p, ori_p = apply_yaw_left(acc_p, ori_p, yaw)
+    acc_w, ori_w = apply_mount_offset(acc_w, ori_w, r_w)
+    acc_p, ori_p = apply_mount_offset(acc_p, ori_p, r_p)
     x = make_rms_features(acc_w, ori_w, acc_p, ori_p, acc_scale)
     return x, r_w, r_p
 
@@ -81,10 +102,13 @@ def _inject_window(
     seed: int,
     lo_deg: float = 0.0,
     hi_deg: float | None = None,
+    yaw_align: bool = False,
+    yaw_ref_slot: int = YAW_REF_SLOT,
 ) -> torch.Tensor:
     x, _, _ = _inject_pair(
         acc, ori, start, window_len, y_watch, y_phone,
         offset_range_deg, acc_scale, seed, lo_deg, hi_deg,
+        yaw_align, yaw_ref_slot,
     )
     return x
 
@@ -105,6 +129,10 @@ class AmassRmsPosDataset(Dataset):
         std: Optional[torch.Tensor] = None,
         lo_deg: float = 0.0,
         hi_deg: float | None = None,
+        feat_mode: str = "full",
+        mask_ori: bool = False,
+        yaw_align: bool = False,
+        yaw_ref_slot: int = YAW_REF_SLOT,
     ):
         self.sequences = sequences
         self.index = index.long()
@@ -114,6 +142,12 @@ class AmassRmsPosDataset(Dataset):
         self.offset_lo_deg = float(lo_deg)
         self.offset_hi_deg = None if hi_deg is None else float(hi_deg)
         self.seed = int(seed)
+        self.feat_mode = feat_mode or "full"
+        self.mask_ori = bool(mask_ori)
+        self.yaw_align = bool(yaw_align)
+        self.yaw_ref_slot = int(yaw_ref_slot)
+        if self.mask_ori and self.feat_mode != "full":
+            raise ValueError("mask_ori only applies to feat_mode=full")
         self.mean = mean.float().view(1, -1) if mean is not None else None
         self.std = std.float().view(1, -1).clamp_min(1e-6) if std is not None else None
 
@@ -136,9 +170,14 @@ class AmassRmsPosDataset(Dataset):
             seed,
             self.offset_lo_deg,
             self.offset_hi_deg,
+            self.yaw_align,
+            self.yaw_ref_slot,
         )
+        x = select_rms_features(x, self.feat_mode)
         if self.mean is not None:
             x = (x - self.mean) / self.std
+        if self.mask_ori:
+            x = mask_ori_channels(x)
         return x, torch.tensor(yw, dtype=torch.long), torch.tensor(yp, dtype=torch.long)
 
 
@@ -160,6 +199,10 @@ class ImuposerRmsPosDataset(Dataset):
         std: torch.Tensor,
         lo_deg: float = 0.0,
         hi_deg: float | None = None,
+        feat_mode: str = "full",
+        mask_ori: bool = False,
+        yaw_align: bool = False,
+        yaw_ref_slot: int = YAW_REF_SLOT,
     ):
         self.sequences = sequences
         self.index = index.long()  # [N, 2] seq, start
@@ -171,6 +214,12 @@ class ImuposerRmsPosDataset(Dataset):
         self.seed = int(seed)
         self.y_watch = int(y_watch)
         self.y_phone = int(y_phone)
+        self.feat_mode = feat_mode or "full"
+        self.mask_ori = bool(mask_ori)
+        self.yaw_align = bool(yaw_align)
+        self.yaw_ref_slot = int(yaw_ref_slot)
+        if self.mask_ori and self.feat_mode != "full":
+            raise ValueError("mask_ori only applies to feat_mode=full")
         self.mean = mean.float().view(1, -1)
         self.std = std.float().view(1, -1).clamp_min(1e-6)
 
@@ -193,8 +242,13 @@ class ImuposerRmsPosDataset(Dataset):
             seed,
             self.offset_lo_deg,
             self.offset_hi_deg,
+            self.yaw_align,
+            self.yaw_ref_slot,
         )
+        x = select_rms_features(x, self.feat_mode)
         x = (x - self.mean) / self.std
+        if self.mask_ori:
+            x = mask_ori_channels(x)
         return (
             x,
             torch.tensor(self.y_watch, dtype=torch.long),
@@ -389,19 +443,23 @@ def compute_norm_stats(
     max_windows: Optional[int] = None,
     lo_deg: float = 0.0,
     hi_deg: float | None = None,
+    feat_mode: str = "full",
+    yaw_align: bool = False,
+    yaw_ref_slot: int = YAW_REF_SLOT,
 ) -> Dict[str, torch.Tensor]:
     """Streaming mean/std over train windows (optionally subsampled)."""
+    dim = feat_dim_for_mode(feat_mode)
     n = index.shape[0]
     if n == 0:
-        return {"mean": torch.zeros(24), "std": torch.ones(24)}
+        return {"mean": torch.zeros(dim), "std": torch.ones(dim)}
     if max_windows is not None and n > max_windows:
         g = torch.Generator().manual_seed(seed + 3)
         pick = torch.randperm(n, generator=g)[:max_windows]
         index = index[pick]
         n = index.shape[0]
 
-    sum_x = torch.zeros(24)
-    sum_x2 = torch.zeros(24)
+    sum_x = torch.zeros(dim)
+    sum_x2 = torch.zeros(dim)
     count = 0
     for i in range(n):
         seq_i, yw, yp, start = index[i].tolist()
@@ -409,8 +467,9 @@ def compute_norm_stats(
         seed_i = amass_seed_offset(seq_i, yw, yp, seed, start)
         x = _inject_window(
             acc, ori, start, window_len, yw, yp, offset_range_deg, acc_scale, seed_i,
-            lo_deg, hi_deg,
+            lo_deg, hi_deg, yaw_align, yaw_ref_slot,
         )
+        x = select_rms_features(x, feat_mode)
         sum_x += x.sum(dim=0)
         sum_x2 += (x * x).sum(dim=0)
         count += x.shape[0]
@@ -430,7 +489,13 @@ def offset_kwargs_from_cfg(cfg: dict) -> dict:
     }
 
 
-def make_amass_rms_loaders(cfg: dict, stats: Dict[str, torch.Tensor], pack: dict):
+def make_amass_rms_loaders(
+    cfg: dict,
+    stats: Dict[str, torch.Tensor],
+    pack: dict,
+    feat_mode: str = "full",
+    yaw_align: bool = False,
+):
     sequences = pack["sequences"]
     lo_deg, hi_deg = offset_euler_bounds(cfg["data"])
     common = dict(
@@ -442,6 +507,8 @@ def make_amass_rms_loaders(cfg: dict, stats: Dict[str, torch.Tensor], pack: dict
         std=stats["std"],
         lo_deg=lo_deg,
         hi_deg=hi_deg,
+        feat_mode=feat_mode,
+        yaw_align=yaw_align,
     )
     train_ds = AmassRmsPosDataset(
         sequences,

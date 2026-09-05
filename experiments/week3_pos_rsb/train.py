@@ -55,6 +55,11 @@ def main():
         type=str,
         default="experiments/week3_pos_rsb/configs/default.yaml",
     )
+    parser.add_argument(
+        "--yaw-align",
+        action="store_true",
+        help="suggestion 1: sequence-level yaw-only left-multiply before inject",
+    )
     args = parser.parse_args()
     cfg = load_config(resolve_path(args.config))
     set_seed(cfg["experiment"]["seed"])
@@ -78,11 +83,14 @@ def main():
     )
     stats = load_norm_stats(stats_pt)
     pack = load_amass_rms_pack(cfg)
-    train_loader, val_loader = make_amass_rms_loaders(cfg, stats, pack)
+    train_loader, val_loader = make_amass_rms_loaders(
+        cfg, stats, pack, yaw_align=bool(args.yaw_align)
+    )
     print(
         f"[week3 step1] train_windows={len(train_loader.dataset)} "
         f"val_windows={len(val_loader.dataset)} "
-        f"input=a_M+R_MS (24)  R_BS unknown / window-constant"
+        f"input=a_M+R_MS (24)  R_BS unknown / window-constant "
+        f"yaw_align={bool(args.yaw_align)}"
     )
 
     model = PosClassifier(

@@ -512,7 +512,13 @@ def main():
         action="store_true",
         help="skip window-length ablation (faster)",
     )
+    parser.add_argument(
+        "--yaw-align",
+        action="store_true",
+        help="suggestion 1: sequence-level yaw-only left-multiply before inject",
+    )
     args = parser.parse_args()
+    yaw_align = bool(args.yaw_align)
 
     cfg = load_config(resolve_path(args.config))
     set_seed(cfg["experiment"]["seed"])
@@ -577,6 +583,7 @@ def main():
             num_workers,
             int(cfg["data"]["window_len"]),
             k_frames,
+            yaw_align=yaw_align,
         )
         metrics["split"] = "AMASS Val"
         metrics["combo"] = "4 组合混合"
@@ -648,6 +655,7 @@ def main():
                 k_frames,
                 yw,
                 yp,
+                yaw_align=yaw_align,
             )
             metrics["split"] = f"IMUPoser {label}"
             metrics["combo"] = label
