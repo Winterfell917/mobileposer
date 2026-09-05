@@ -6,8 +6,12 @@
 > **Week3**：输入只有 \(a_M, R_{MS}\)，\(R_{SB}\) **未知**；先位置，再外参，再姿态
 >
 > **对外口径（2026-09-03 起）：** \(R_{BS}\) **窗内恒定、序列内可变**；XYZ 欧拉**每个轴均匀 \([0^\circ, 180^\circ]\)**（不是旧的 \(\pm 45^\circ\)，也不是轴角幅度 180°）。  
-> 下方第 1–3 步结果表若未另行标明，仍是 **\(\pm 45^\circ\)** 旧采样，不能与新范围混用。
-> 不要与 08-14/08-15「整段序列一个 \(R_{BS}\)」旧表混用。旧权重备份：`outputs/checkpoints/seq_constant/`。
+> 下方第 1–3 步结果表若未另行标明，仍是 **\(\pm 45^\circ\)** 旧采样（现成权重的训练分布）。  
+> **\([0^\circ, 180^\circ]\) 零样本（±45° 权重、未重训）**见「零样本评测」；JSON 在 `outputs/logs/euler180/`。  
+> **\([0^\circ, 180^\circ]\) 重训后评测**见文末「重训评测」；JSON 在 `outputs/logs/euler180_retrain/`。  
+> **Q4 槽位消融**见「Q4：错槽外参」；JSON 在 `outputs/logs/ablation_q4/`（只评、不重训）。  
+> 四套 JSON **不要混用**：`outputs/logs/metrics_*.json` = ±45°；`euler180/` = 零样本；`euler180_retrain/` = 重训；`ablation_q4/` = 槽位消融。  
+> 不要与 08-14/08-15「整段序列一个 \(R_{BS}\)」旧表混用。旧 ±45° 权重备份：`outputs/checkpoints/euler45/`、`week2_rot_ext/outputs/checkpoints/euler45/`。旧整段协议备份：`outputs/checkpoints/seq_constant/`。
 
 ## 第 1 步：未知朝向推测设备位置
 
@@ -54,6 +58,7 @@ experiments/week3_pos_rsb/
   train.py
   eval.py / visualize.py         # 第 1 步
   eval_step2.py / visualize_step2.py
+  eval_step2_slot_ablation.py      # Q4：冻结 dual，只改槽位 one-hot
   eval_step3.py / visualize_step3.py / cascade_pose.py
   outputs/{checkpoints,logs,figures,data}
 ```
@@ -92,6 +97,19 @@ python experiments/week3_pos_rsb/eval.py \
 - `metrics_test_{lw_lp,lw_rp,rw_lp,rw_rp}.json`
 - `metrics_summary.json` / `metrics_step1.json`
 
+现行 yaml 已是每轴 \([0^\circ,180^\circ]\)。评测务必换目录，避免覆盖 ±45° JSON：
+
+```bash
+# 零样本（±45° 权重）：outputs/logs/euler180/
+# 重训后（现行 live 权重）：
+python experiments/week3_pos_rsb/eval.py --no-ablation \
+  --device cuda:3 --log-dir experiments/week3_pos_rsb/outputs/logs/euler180_retrain
+python experiments/week3_pos_rsb/eval_step2.py \
+  --device cuda:3 --log-dir experiments/week3_pos_rsb/outputs/logs/euler180_retrain
+python experiments/week3_pos_rsb/eval_step3.py \
+  --device cuda:3 --log-dir experiments/week3_pos_rsb/outputs/logs/euler180_retrain
+```
+
 ### 4. 可视化（序列时间线 + SMPL mesh 标注）
 ```bash
 # 默认：自动挑好/坏序列，输出 timeline + mesh 拼图 + 混淆矩阵
@@ -122,7 +140,15 @@ python experiments/week3_pos_rsb/eval_step2.py \
 python experiments/week3_pos_rsb/visualize_step2.py
 ```
 产物：`outputs/logs/metrics_step2.json`；图 `outputs/figures/step2_*.png`。  
-**不重训**外参网络：加载 `week2_rot_ext/.../best_rot_err_dual.pt`（epoch 38）与 `norm_stats_dual.pt`。位置网仍用本目录 `norm_stats.pt`。
+**不重训**外参网络：加载 `week2_rot_ext/.../best_rot_err_dual.pt`（live 为 epoch 40）与 `norm_stats_dual.pt`。位置网仍用本目录 `norm_stats.pt`。
+
+Q4 槽位消融（冻结 dual，只改 one-hot；**换目录**，勿覆盖 `metrics_step2.json`）：
+
+```bash
+python experiments/week3_pos_rsb/eval_step2_slot_ablation.py \
+  --device cuda:3 \
+  --log-dir experiments/week3_pos_rsb/outputs/logs/ablation_q4
+```
 
 ### 6. 第 3 步：校准 \(R_{MB}\) 接 MobilePoser
 ```bash
@@ -134,11 +160,12 @@ python experiments/week3_pos_rsb/visualize_step3.py --combo lw_rp --seq-ids 13,8
 产物：`outputs/logs/metrics_step3.json`；图 `outputs/figures/step3_*.png`。  
 需官方 `checkpoints/weights.pth`。默认 12 序列 × 四组合（与 Week2 姿态下游相同），打包 `[watch, phone, Head]`，Head 不注入。
 
-## 结果记录（第 1 步）
+## 结果记录（第 1 步，欧拉 ±45°）
 
 配置：`default.yaml`；训练窗长 W=90；checkpoint=`best_joint_acc.pt`（epoch 28）。  
-评测日期：2026-08-16（窗内恒定协议）。  
-每个 IMUPoser 组合均为 n=6003 窗 / 167 序列（与 Week1 相同切窗）。
+评测日期：2026-08-16（窗内恒定 / **XYZ 欧拉每轴 \(\pm 45^\circ\)**）。  
+每个 IMUPoser 组合均为 n=6003 窗 / 167 序列（与 Week1 相同切窗）。  
+这是现成权重的**训练分布**；\([0^\circ,180^\circ]\) 零样本见文末。
 
 ### 主表（W=90）
 
@@ -305,7 +332,7 @@ Seq Joint 对照：Week1 四组合 0.467 / 0.749 / 0.461 / 0.778；Week3 为 0.7
 | **GT-slot** | 真值位置喂 Week2（本协议上界，应≈ Week2 dual） |
 | **Oracle** | 完美 \(R_{SB}\)，0° |
 
-评测日期：2026-08-16。W=90；AMASS val n=79636；IMUPoser 每组合 n=6003 / 167 序列。
+评测日期：2026-08-16（**欧拉 ±45°**）。W=90；AMASS val n=79636；IMUPoser 每组合 n=6003 / 167 序列。
 
 ### 主表（\(R_{SB}\) 平均测地线角误差 °）
 
@@ -389,7 +416,7 @@ R_{MB} = R_{MS}\,\hat{R}_{SB}^{\top},\quad a_M = a_{\mathrm{obs}}
 | **GT-slot** | 真值位置喂 Week2（本协议上界 ≈ Week2 dual Learned） | 解剖 GT |
 | **Oracle** | 完美 \(R_{SB}\) | 解剖 GT |
 
-评测日期：2026-09-02（窗内恒定 / 分段注入 / **Pred-pack**）。W=90；AMASS / IMUPoser 各 12 序列、48 combo-run。  
+评测日期：2026-09-02（窗内恒定 / 分段注入 / **Pred-pack** / **欧拉 ±45°**）。W=90；AMASS / IMUPoser 各 12 序列、48 combo-run。  
 序列级 Joint（段内多数投票槽位都对，再按 combo-run 平均）：AMASS **0.979**，IMUPoser **0.833**。
 
 ### 主表（四组合平均，Pred-pack）
@@ -467,8 +494,284 @@ None 与 Learned 因 \(R_{BS}\) 采样（整段 vs 按窗）不同，不能逐�
 - 不必为姿态这一步重训任何网络。未知朝向的主要伤害已经被第 2 步的 \(\hat{R}_{SB}\) 吃掉；槽位填反的额外代价目前是亚厘米。
 - \(R_{MS}\to\) pose 基线（None）在真机上明显更差，可视化见 `step3_mesh_seq*` / pyrender 视频。
 
+## 零样本评测：欧拉每轴 \([0^\circ, 180^\circ]\)（现权重，未重训）
+
+设定与现行 yaml 一致：XYZ 欧拉**每个轴** \(\mathrm{Uniform}[0^\circ, 180^\circ]\)（不是轴角幅度 180°，也不是 \(\pm 180^\circ\)）。测地线角均值约 **137°**。  
+权重**没有**按新范围重训：第 1 步 `best_joint_acc.pt` epoch 28、第 2 步 Week2 dual `best_rot_err_dual.pt` epoch 38、姿态官方 `checkpoints/weights.pth`，三者都只见过 \(\pm 45^\circ\)（测地线约 43°）。  
+评测日期：2026-09-03。第 1/2 步切窗与 ±45° 表相同；第 3 步仍是 **Pred-pack**、12 序列 × 四组合。  
+产物：`outputs/logs/euler180/`（`metrics_step1.json` / `metrics_step2.json` / `metrics_step3.json`）。**未覆盖** ±45° 的 `outputs/logs/metrics_*.json`。
+
+### 第 1 步 Joint Acc
+
+| Split | Combo | Watch Acc | Phone Acc | Joint Acc | Seq Joint Acc |
+|-------|-------|----------:|----------:|----------:|--------------:|
+| AMASS Val | 4 组合混合 | 0.522 | 0.614 | **0.331** | 0.421 |
+| IMUPoser | LW+LP | 0.509 | 0.616 | **0.308** | 0.383 |
+| IMUPoser | LW+RP | 0.533 | 0.489 | **0.275** | 0.419 |
+| IMUPoser | RW+LP | 0.475 | 0.625 | **0.311** | 0.347 |
+| IMUPoser | RW+RP | 0.454 | 0.457 | **0.186** | 0.060 |
+
+对照 ±45° 训练分布（上文主表）：
+
+| Split | ±45° Joint | 0–180° Joint |
+|-------|-----------:|-------------:|
+| AMASS Val | **0.903** | 0.331 |
+| LW+LP | **0.727** | 0.308 |
+| LW+RP | **0.642** | 0.275 |
+| RW+LP | **0.769** | 0.311 |
+| RW+RP | **0.563** | 0.186 |
+
+init_done（K=30 帧）：AMASS 触发率 0.788 / 稳定正确率 **0.377** / 中位 1.5 s；真机触发率仍高（0.98–0.99），稳定正确率 0.37 / 0.29 / 0.28 / **0.16**（RW+RP）。
+
+### 第 2 步 \(R_{SB}\) 平均测地线角误差 °
+
+| Split | None | Pred-win | Pred-seq | GT-slot |
+|-------|-----:|---------:|---------:|--------:|
+| AMASS Val | 136.97 | 117.31 | **117.40** | 113.89 |
+| IMUPoser LW+LP | 137.01 | 121.44 | **121.45** | 119.21 |
+| IMUPoser LW+RP | 136.62 | 120.77 | **120.67** | 118.58 |
+| IMUPoser RW+LP | 136.77 | 122.72 | **122.50** | 118.51 |
+| IMUPoser RW+RP | 136.53 | 122.27 | **123.57** | 117.75 |
+
+Watch / Phone 拆开（Pred-seq / GT-slot）：
+
+| Split | Pred-seq W / P | GT-slot W / P |
+|-------|----------------|---------------|
+| AMASS Val | 123.47 / 111.33 | 115.92 / 111.86 |
+| LW+LP | 128.40 / 114.49 | 123.20 / 115.22 |
+| LW+RP | 126.71 / 114.64 | 122.15 / 115.01 |
+| RW+LP | 128.64 / 116.35 | 121.16 / 115.86 |
+| RW+RP | 131.24 / 115.90 | 120.16 / 115.34 |
+
+分层（位置对不对）：
+
+| Split | Joint OK n | Pred = GT-slot | Joint BAD n | Pred-win | GT-slot |
+|-------|-----------:|---------------:|------------:|---------:|--------:|
+| AMASS Val | 26323 | **98.57** | 53313 | 126.57 | 121.46 |
+| LW+LP | 1847 | **111.87** | 4156 | 125.69 | 122.47 |
+| LW+RP | 1650 | **110.36** | 4353 | 124.72 | 121.69 |
+| RW+LP | 1867 | **116.80** | 4136 | 125.39 | 119.29 |
+| RW+RP | 1119 | **108.48** | 4884 | 125.43 | 119.88 |
+
+对照 ±45°：AMASS None 42.8→**137.0**（采样变宽，符合预期）；Pred-seq 15.15→**117.4**；GT-slot 15.12→**113.9**。槽位完全正确时外参网仍剩 ~99°，说明瓶颈已经是 **Week2 dual 出分布**，不是第 1 步填错槽。
+
+### 第 3 步姿态（Pred-pack）
+
+序列级 Joint：AMASS **0.417**（±45° 为 0.979），IMUPoser **0.250**（±45° 为 0.833）。Oracle 与 ±45° **逐格相同**（完美 \(R_{SB}\) 与注入幅度无关）。
+
+| 数据 | None pos | **Pred-seq pos** | GT-slot pos | Oracle pos | None ang | **Pred-seq ang** | GT-slot ang | Oracle ang |
+|------|--------:|-----------------:|-----------:|-----------:|---------:|-----------------:|-----------:|-----------:|
+| AMASS | 26.25 | **20.79** | 21.16 | 13.12 | 54.32 | **43.40** | 44.47 | 25.78 |
+| IMUPoser | 23.97 | **18.37** | 18.99 | 5.46 | 50.01 | **38.61** | 40.33 | 12.20 |
+
+单位：位置 cm / 角度 °。SIP / mesh：AMASS None 59.7° / 32.4 cm → Pred 47.1° / 26.1 cm；IMUPoser None 54.5° / 29.3 cm → Pred 41.5° / 22.7 cm。
+
+对照 ±45° Pred-pack 主表：AMASS Pred 13.92→**20.79 cm**；真机 Pred 7.47→**18.37 cm**。None 真机 11.33→**23.97 cm**。
+
+### IMUPoser 分组合位置 cm
+
+| combo | None | Pred-seq | GT-slot | Oracle |
+|-------|-----:|---------:|--------:|-------:|
+| lw_lp_h | 24.28 | **18.69** | 19.46 | 5.42 |
+| lw_rp_h（官方训配） | 24.50 | **20.13** | 18.82 | 5.33 |
+| rw_lp_h | 23.11 | **17.44** | 18.50 | 5.55 |
+| rw_rp_h | 23.98 | **17.25** | 19.18 | 5.54 |
+
+官方组合 `lw_rp_h` 上 Pred **20.13** vs GT-slot 18.82（±45° 曾是 7.07 vs 6.92）。Oracle 仍是 5.3–5.6 cm。
+
+### Pred-seq：序列 Joint OK / BAD
+
+| 数据 | Pred Joint-OK | Pred Joint-BAD |
+|------|-------------:|---------------:|
+| AMASS | 21.70 cm（n=20） | 20.13 cm（n=28） |
+| IMUPoser | 17.38 cm（n=12） | 18.70 cm（n=36） |
+
+### 零样本解读
+
+1. **位置网在大安装角下基本失效。** ori 被拧到接近任意朝向后，网络主要靠未拧的 acc；Joint 从 0.90 掉到 0.33，真机最差 RW+RP **0.186**（序列级 0.06）。单头 Watch/Phone 仍有 0.45–0.63，两头同时对才崩。
+2. **外参网上界也一起崩。** None≈137° 只说明采样对了。GT-slot（位置已知）AMASS 仍 **113.9°**，相对 ±45° 的 15.1° 是完全出分布；Joint 正确的窗也只到 98.6°。Pred-seq 相对 GT-slot 只再差约 2–6°，级联惩罚被外参网本身淹没。
+3. **姿态闭环还能从 None 拉回一截，但离 Oracle 很远。** 真机 24.0→18.4 cm（Oracle 5.5）；合成 26.3→20.8 cm（Oracle 13.1）。Pred 与 GT-slot 几乎打平（甚至略好），因为剩余 \(\hat{R}_{SB}\) 误差已经 ~115°，槽位对错不再是主因。唯一例外是官方 `lw_rp_h`：Pred 20.13 差于 GT-slot 18.82。
+4. **Oracle 对齐确认评测没写错。** 合成 13.12 cm / 25.78°、真机 5.46 cm / 12.20° 与 ±45° 表相同。
+5. **这不是新范围的「可达性能」，只是现权重的 OOD 代价。** 要在 \([0^\circ,180^\circ]\) 上工作，需要按新范围重建 Week2 的 `amass_*.pt` 并重训第 1、2 步（姿态官方权仍只见过小安装角）。
+
+### 简要结论
+- 把安装旋转从 \(\pm 45^\circ\) 拉到每轴 \([0^\circ,180^\circ]\) 之后，**现成三级权重都不能零样本扛住**：Joint 0.90→0.33，\(R_{SB}\) 15°→117°，真机姿态 Pred 7.5→**18.4 cm**。
+- 级联相对不校准仍有收益（真机 24.0→18.4 cm），但上界已经是 GT-slot 的 19.0 cm，不是位置分类的问题。
+- 下一步若要覆盖大安装角，应先重训第 1 步位置网和第 2 步 dual，再重测 Pred-pack；不要把本表写进「未知朝向闭环已成立」的 ±45° 结论里。  
+  **已做：** 见下一节「重训评测」（2026-09-04）。
+
+## 重训评测：欧拉每轴 \([0^\circ, 180^\circ]\)（第 1/2 步已重训）
+
+设定与零样本相同：XYZ 欧拉**每个轴** \(\mathrm{Uniform}[0^\circ, 180^\circ]\)，测地线角均值约 **137°**，Pred-pack，12 序列 × 四组合。  
+差别只有权重：第 1 步 `best_joint_acc.pt` **epoch 23**（AMASS val Joint **0.840**）、第 2 步 Week2 dual `best_rot_err_dual.pt` **epoch 40**（AMASS val **20.72°**），都按 \([0^\circ,180^\circ]\) 从零训了 40 epoch。姿态仍是官方 `checkpoints/weights.pth`，**没有**重训。  
+±45° 旧权备份在各自 `outputs/checkpoints/euler45/`。评测日期：2026-09-04。  
+产物：`outputs/logs/euler180_retrain/`（`metrics_step1.json` / `metrics_step2.json` / `metrics_step3.json`）。**未覆盖**零样本 `euler180/`，也未覆盖 ±45° 的 `outputs/logs/metrics_*.json`。
+
+### 第 1 步 Joint Acc
+
+| Split | Combo | Watch Acc | Phone Acc | Joint Acc | Seq Joint Acc |
+|-------|-------|----------:|----------:|----------:|--------------:|
+| AMASS Val | 4 组合混合 | 0.939 | 0.883 | **0.840** | **0.952** |
+| IMUPoser | LW+LP | 0.821 | 0.617 | **0.517** | 0.539 |
+| IMUPoser | LW+RP | 0.821 | 0.513 | **0.445** | 0.455 |
+| IMUPoser | RW+LP | 0.883 | 0.640 | **0.569** | 0.581 |
+| IMUPoser | RW+RP | 0.881 | 0.559 | **0.503** | 0.461 |
+
+三套对照（Joint Acc）：
+
+| Split | ±45° 训练分布 | 0–180° 零样本 | **0–180° 重训** |
+|-------|-------------:|-------------:|----------------:|
+| AMASS Val | 0.903 | 0.331 | **0.840** |
+| LW+LP | 0.727 | 0.308 | **0.517** |
+| LW+RP | 0.642 | 0.275 | **0.445** |
+| RW+LP | 0.769 | 0.311 | **0.569** |
+| RW+RP | 0.563 | 0.186 | **0.503** |
+
+init_done（K=30 帧）：AMASS 触发率 0.910 / 稳定正确率 **0.921** / 中位 1.0 s；真机触发率均为 1.00，稳定正确率 0.527 / 0.443 / 0.587 / 0.509。
+
+按运动类型（四组合窗级加权，n≥300）：高分仍是 Walking **0.722**、Kicking 0.640、TennisSwings 0.586；低分仍是 ArmCrossing **0.226**、ClappingFull 0.234、Basketball 0.269、ArmRaises 0.295。瓶颈还是 Phone。
+
+### 第 2 步 \(R_{SB}\) 平均测地线角误差 °
+
+| Split | None | Pred-win | Pred-seq | GT-slot |
+|-------|-----:|---------:|---------:|--------:|
+| AMASS Val | 136.97 | 23.64 | **21.03** | 20.70 |
+| IMUPoser LW+LP | 137.01 | 46.17 | **40.06** | 37.76 |
+| IMUPoser LW+RP | 136.62 | 46.26 | **40.32** | 37.60 |
+| IMUPoser RW+LP | 136.77 | 43.88 | **39.23** | 38.11 |
+| IMUPoser RW+RP | 136.53 | 43.67 | **39.50** | 38.56 |
+
+Watch / Phone 拆开（Pred-seq / GT-slot）：
+
+| Split | Pred-seq W / P | GT-slot W / P |
+|-------|----------------|---------------|
+| AMASS Val | 25.20 / 16.86 | 24.72 / 16.69 |
+| LW+LP | 46.12 / 34.01 | 43.04 / 32.48 |
+| LW+RP | 46.08 / 34.55 | 42.24 / 32.95 |
+| RW+LP | 46.00 / 32.47 | 44.72 / 31.51 |
+| RW+RP | 46.66 / 32.34 | 44.73 / 32.40 |
+
+分层（位置对不对）：
+
+| Split | Joint OK n | Pred = GT-slot | Joint BAD n | Pred-win | GT-slot |
+|-------|-----------:|---------------:|------------:|---------:|--------:|
+| AMASS Val | 66901 | **18.54** | 12735 | 50.45 | 32.08 |
+| LW+LP | 3102 | **33.91** | 2901 | 59.29 | 41.88 |
+| LW+RP | 2673 | **33.89** | 3330 | 56.19 | 40.57 |
+| RW+LP | 3414 | **35.74** | 2589 | 54.62 | 41.25 |
+| RW+RP | 3021 | **35.50** | 2982 | 51.95 | 41.67 |
+
+对照：AMASS GT-slot **20.70°** 与 Week2 dual 重训 val **20.72°** 对齐（同一冻结权重）。Pred-seq 相对 GT-slot 只多 **0.33°**（±45° 时是 +0.03°）。零样本 GT-slot 曾是 **113.9°**。
+
+真机 GT-slot 37.6–38.6°，仍高于 ±45° 的 25–27°：大安装角下外参网的真机域差更大，但已经从零样本的 ~119° 拉回来。
+
+### 第 3 步姿态（Pred-pack）
+
+序列级 Joint：AMASS **0.958**（零样本 0.417，±45° 0.979），IMUPoser **0.792**（零样本 0.250，±45° 0.833）。Oracle 与 ±45° / 零样本 **逐格相同**（完美 \(R_{SB}\) 与注入幅度、第 1/2 步权重都无关）。
+
+| 数据 | None pos | **Pred-seq pos** | GT-slot pos | Oracle pos | None ang | **Pred-seq ang** | GT-slot ang | Oracle ang |
+|------|--------:|-----------------:|-----------:|-----------:|---------:|-----------------:|-----------:|-----------:|
+| AMASS | 26.25 | **14.81** | 14.59 | 13.12 | 54.32 | **29.68** | 29.12 | 25.78 |
+| IMUPoser | 23.97 | **8.56** | 7.79 | 5.46 | 50.01 | **19.39** | 17.43 | 12.20 |
+
+单位：位置 cm / 角度 °。SIP / mesh：AMASS None 59.7° / 32.4 cm → Pred 33.1° / 18.5 cm；IMUPoser None 54.5° / 29.3 cm → Pred 20.2° / 10.8 cm。
+
+三套 Pred-pack 对照：
+
+| 数据 | ±45° Pred | 0–180° 零样本 Pred | **0–180° 重训 Pred** | Oracle |
+|------|----------:|-------------------:|---------------------:|-------:|
+| AMASS pos cm | 13.92 | 20.79 | **14.81** | 13.12 |
+| IMUPoser pos cm | 7.47 | 18.37 | **8.56** | 5.46 |
+
+### IMUPoser 分组合位置 cm
+
+| combo | None | Pred-seq | GT-slot | Oracle |
+|-------|-----:|---------:|--------:|-------:|
+| lw_lp_h | 24.28 | **8.68** | 8.02 | 5.42 |
+| lw_rp_h（官方训配） | 24.50 | **8.23** | 7.41 | 5.33 |
+| rw_lp_h | 23.11 | **8.59** | 8.04 | 5.55 |
+| rw_rp_h | 23.98 | **8.75** | 7.67 | 5.54 |
+
+官方组合 `lw_rp_h` 上 Pred **8.23** vs GT-slot 7.41（零样本曾是 20.13 vs 18.82；±45° 是 7.07 vs 6.92）。四组合 Pred 挤在 8.2–8.8 cm。
+
+AMASS 四分位 Pred 挤在 14.6–15.1 cm（None 25.0–28.6）。
+
+### Pred-seq：序列 Joint OK / BAD
+
+| 数据 | Pred Joint-OK | Pred Joint-BAD |
+|------|-------------:|---------------:|
+| AMASS | 14.66 cm（n=46） | 18.31 cm（n=2） |
+| IMUPoser | 8.63 cm（n=38） | 8.31 cm（n=10） |
+
+真机 BAD 没有崩；相对 GT-slot 的平均差是 **0.77 cm**（±45° Pred-pack 是 0.52 cm）。
+
+### 重训解读
+
+1. **第 1 步已经回到可用。** AMASS Joint 0.331→**0.840**（训练曲线 best，对照 ±45° 的 0.903 还差 6 点，主要在 Phone 0.883 vs 0.915）。真机 0.19–0.31→**0.45–0.57**，仍低于 ±45° 的 0.56–0.77，但远好于乱猜。
+2. **第 2 步上界回到 Week2 dual。** AMASS GT-slot **20.70°** ≈ dual val 20.72°（零样本 113.9°）。Pred-seq 21.03°，级联只多 0.33°。真机 Pred-seq **39–40°**（零样本 ~121°，±45° 为 25–28°）：位置对的窗约 34–36°，错的窗再罚 ~16–25°。
+3. **第 3 步闭环重新成立。** 真机 24.0→**8.56 cm**（Oracle 5.46）；合成 26.3→**14.81 cm**（Oracle 13.12）。相对零样本的 18.4 / 20.8 cm 是主收益。相对 ±45° 训练分布（7.47 / 13.92）大约多 **1.1 / 0.9 cm**：剩下的是外参 21° vs 15°、以及官方姿态权只见过小安装角。
+4. **官方组合仍然最好读。** `lw_rp_h` Pred 8.23 cm，四组合差距很小（8.2–8.8），不再出现零样本那种 17–20 cm。
+5. **Oracle 仍然对齐。** 13.12 cm / 25.78°、5.46 cm / 12.20°，说明评测通道与 ±45° / 零样本一致，变的只是第 1/2 步权重。
+
+### 简要结论
+- 按每轴 \([0^\circ,180^\circ]\) 重训第 1、2 步之后，**大安装角级联可以接上**：真机 Pred 从零样本 **18.4 cm 降到 8.6 cm**，合成 20.8→14.8 cm，接近 ±45° 训练分布上的 7.5 / 13.9 cm。
+- 第 1 步 AMASS Joint **0.840**、第 2 步 GT-slot **20.7°** 已经够用；真机还差在外参域差（GT-slot 38° vs ±45° 的 26°）和未重训的官方姿态权。
+- 不要把零样本 18.4 cm 写进「重训后」结论；也不要把本表 8.6 cm 和 ±45° 的 7.5 cm 当成同一训练分布。
+
+## Q4：错槽外参（只评、不重训）
+
+顾问问：Week2 dual 是否把槽位 one-hot **过拟合**？若乱填槽几乎不掉，槽条件就没用，才值得做 4.6（去掉槽、重训外参）。Q4 **只改条件、不改 IMU、不重训**。
+
+设定与「重训评测」第 2 步同一套窗 / 注入 / live 权重：第 1 步 `best_joint_acc.pt` **epoch 23**，Week2 dual **epoch 40**；欧拉每轴 \([0^\circ,180^\circ]\)。IMU 特征冻结，只换 8 维槽位 one-hot（表 4 + 机 4）。脚本：`eval_step2_slot_ablation.py`。产物：`outputs/logs/ablation_q4/metrics_slot_ablation.json`。
+
+| 条件 | 含义 |
+|------|------|
+| **None** | 不估 \(R_{SB}\)（恒等），对照采样宽度 |
+| **GT-slot** | 真值位置 one-hot（4.0，上界） |
+| **Pred-seq** | 第 1 步序列多数投票槽（级联主路径，已在 `eval_step2`） |
+| **Random（4.2）** | 每窗独立乱抽：表 \(\{0,1\}\)、机 \(\{2,3\}\) |
+| **Swap（4.3）** | 左右对调：LW↔RW、LP↔RP |
+| **Zero（4.4）** | 全零 one-hot（训练未见过的码） |
+
+指标：\(R_{SB}\) 平均测地线角误差 °（越低越好）。AMASS Val n=79636；真机每组合 n=6003。
+
+### AMASS Val
+
+| 条件 | mean | watch / phone |
+|------|-----:|--------------:|
+| None | 136.97 | 136.99 / 136.94 |
+| GT-slot | **20.70** | 24.72 / 16.69 |
+| Pred-seq | **21.03** | 25.20 / 16.86 |
+| Random | **49.83** | 75.79 / 23.87 |
+| Swap | **78.97** | 126.89 / 31.06 |
+| Zero | 39.66 | 56.75 / 22.58 |
+
+GT-slot / Pred-seq 与重训第 2 步表对齐（20.70° / 21.03°）。Random 相对 GT 再差 **+29°**，Swap **+58°**。表对错槽更敏感（Random 表 75.8° vs 机 23.9°；Swap 表 126.9° 已接近 None）。
+
+### IMUPoser（mean °）
+
+| Split | None | GT-slot | Pred-seq | Random | Swap | Zero |
+|-------|-----:|--------:|---------:|-------:|-----:|-----:|
+| LW+LP | 137.01 | 37.76 | 40.06 | **62.50** | **87.20** | 71.63 |
+| LW+RP | 136.62 | 37.60 | 40.32 | **61.92** | **86.66** | 70.71 |
+| RW+LP | 136.77 | 38.11 | 39.23 | **62.39** | **85.82** | 44.60 |
+| RW+RP | 136.53 | 38.56 | 39.50 | **61.68** | **84.41** | 43.95 |
+
+真机 Random 约 **62°**（GT-slot 38°），Swap 约 **85–87°**。Zero 在 RW 组合约 44°、LW 组合约 71°，仍明显差于 GT-slot。
+
+### 解读
+
+1. **槽位条件有用。** 乱槽会涨，不是「填什么槽都一样」。
+2. **级联主路径几乎吃满上界。** Pred-seq 相对 GT-slot 只多 0.33°（AMASS）/ 约 2°（真机），第 1 步填槽不是第 2 步的主瓶颈。
+3. **系统错槽比随机更伤。** Swap 把表拧到接近不校准；Random 平均介于 GT 与 Swap 之间。
+4. **不做 4.6。** 去掉槽再重训外参没有必要：错槽已经证明 one-hot 被用上了，而 Pred 槽已经够准。
+
+### 简要结论
+- 顾问担心的「错槽外参过拟合到无用」不成立：AMASS Random **49.8°** vs GT **20.7°**，Swap **79.0°**。
+- 不要把本表写进 ±45° 第 2 步，也不要覆盖 `euler180_retrain/metrics_step2.json`。
+
 ## 已知注意点
-- **口径：** 现行是 \(R_{BS}\) 窗内恒定，XYZ 欧拉**每个轴均匀 \([0^\circ, 180^\circ]\)**。旧 \(\pm 45^\circ\) 表（Joint、7.47 cm 等）不要和新范围混用。旧整段协议数字（AMASS Joint 0.832、真机姿态 11.6→6.6 cm 等）也不要写进本周汇报。
+- **口径：** 现行是 \(R_{BS}\) 窗内恒定，XYZ 欧拉**每个轴均匀 \([0^\circ, 180^\circ]\)**。旧 \(\pm 45^\circ\) 表（Joint 0.90、真机 Pred 7.47 cm 等）是小安装角训练分布；零样本 JSON 在 `outputs/logs/euler180/`；**重训后** JSON 在 `outputs/logs/euler180_retrain/`（真机 Pred **8.56 cm**）；**Q4 槽位消融** JSON 在 `outputs/logs/ablation_q4/`（AMASS Random **49.8°**，不做 4.6）。旧整段协议数字（AMASS Joint 0.832、真机姿态 11.6→6.6 cm 等）也不要写进本周汇报。
 - IMUPoser 官方数据是 5 路全开；测试时把录制 ori 当作 \(R_{MB}\) 再乘随机 \(R_{BS}\)。
 - 与 Week1 对照时，输入模态也不相同（gyro vs \(R_{MS}\)），AMASS Val 是更干净的「只改朝向协议」对照。
 - 第 2 步外参网与位置网 **各自归一化**：勿把 Week3 `norm_stats.pt` 喂给 Week2 dual。
