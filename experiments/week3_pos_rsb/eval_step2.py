@@ -317,13 +317,16 @@ def main():
     parser.add_argument("--rot-checkpoint", type=str, default=None)
     parser.add_argument("--split", choices=["val", "test", "both"], default="both")
     parser.add_argument("--combos", type=str, default="lw_lp,lw_rp,rw_lp,rw_rp")
+    parser.add_argument("--device", type=str, default=None)
+    parser.add_argument("--log-dir", type=str, default=None)
     args = parser.parse_args()
 
     cfg = load_config(resolve_path(args.config))
     set_seed(cfg["experiment"]["seed"])
-    device = torch.device(
+    device_name = args.device or (
         cfg["train"]["device"] if torch.cuda.is_available() else "cpu"
     )
+    device = torch.device(device_name)
     step2 = cfg.get("step2") or {}
     pos_ckpt = resolve_path(args.pos_checkpoint or cfg["eval"]["checkpoint"])
     rot_ckpt = resolve_path(
@@ -372,18 +375,20 @@ def main():
     rot_model.eval()
     print(
         f"pos_ckpt={pos_ckpt} epoch={pos_payload.get('epoch')} | "
-        f"rot_ckpt={rot_ckpt} epoch={rot_payload.get('epoch')}"
+        f"rot_ckpt={rot_ckpt} epoch={rot_payload.get('epoch')} | "
+        f"device={device}"
     )
 
     batch_size = int(cfg["eval"]["batch_size"])
     num_workers = int(cfg["train"]["num_workers"])
-    log_dir = resolve_path(cfg["eval"]["log_dir"])
+    log_dir = resolve_path(args.log_dir or cfg["eval"]["log_dir"])
     log_dir.mkdir(parents=True, exist_ok=True)
 
     out: Dict[str, Any] = {
         "protocol": (
             "Cascade: step1 Pred slot → Week2 dual R_SB. "
             "R_MS=R_MB@R_BS window-constant, a_M unchanged. "
+            "XYZ Euler per axis Uniform[lo, hi] deg. "
             "None=I; pred_window=step1 per window; pred_seq=majority slot; "
             "gt_slot=oracle position into Week2; oracle R_SB=0°."
         ),

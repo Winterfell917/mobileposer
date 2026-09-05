@@ -270,7 +270,7 @@ def main():
             "offset_euler_hi_deg": cfg["data"].get(
                 "offset_euler_hi_deg", cfg["data"]["offset_range_deg"]
             ),
-            "convention": "R_obs = R_bone @ R_SB; a_obs = R_SB^T @ a_bone",
+            "convention": "R_obs = R_bone @ R_SB; a_obs = a_bone",
         },
         out_dir / "norm_stats.pt",
     )

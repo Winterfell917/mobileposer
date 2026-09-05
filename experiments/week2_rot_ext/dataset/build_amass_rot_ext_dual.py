@@ -230,9 +230,11 @@ def main():
     val_ids_global = _split_by_sequence(
         total_seq, cfg["data"]["val_ratio"], cfg["experiment"]["seed"]
     )
+    lo_deg, hi_deg = offset_euler_bounds(cfg["data"])
     print(
         f"[dual] AMASS files={len(files)}, sequences={total_seq}, "
-        f"val_seqs={len(val_ids_global)}, offset_range={cfg['data']['offset_range_deg']}"
+        f"val_seqs={len(val_ids_global)}, "
+        f"euler=[{lo_deg},{hi_deg}] offset_per={cfg['data']['offset_per']}"
     )
 
     keys = (
@@ -262,8 +264,8 @@ def main():
             offset_per=str(cfg["data"]["offset_per"]),
             val_ids=local_val,
             gen=gen,
-            lo_deg=offset_euler_bounds(cfg["data"])[0],
-            hi_deg=offset_euler_bounds(cfg["data"])[1],
+            lo_deg=lo_deg,
+            hi_deg=hi_deg,
         )
         for k in keys:
             train_b[k].extend(part["train"][k])
@@ -295,7 +297,9 @@ def main():
             "feat_dim": 24,
             "mode": "dual",
             "offset_range_deg": cfg["data"]["offset_range_deg"],
-            "convention": "R_obs = R_bone @ R_SB; a_obs = R_SB^T @ a_bone",
+            "offset_euler_lo_deg": lo_deg,
+            "offset_euler_hi_deg": hi_deg,
+            "convention": "R_obs = R_bone @ R_SB; a_obs = a_bone",
         },
         out_dir / "norm_stats_dual.pt",
     )
